@@ -1,0 +1,7 @@
+flask
+celery[redis]
+redis
+ortools
+pandas
+gunicorn
+eventlet

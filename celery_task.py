@@ -4,8 +4,8 @@ from solver_logic import run_simulation_for_api
 # Konfigurasi Celery untuk terhubung ke Redis
 celery = Celery(
     'tasks',
-    broker='redis://127.0.0.1:6379/0',
-    backend='redis://127.0.0.1:6379/0'
+    broker='redis://redis:6379/0',
+    backend='redis://redis:6379/0'
 )
 
 @celery.task

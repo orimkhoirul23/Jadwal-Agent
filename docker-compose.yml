@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  # Layanan 1: Server Redis
+  # Menggunakan image resmi Redis yang ringan dari Docker Hub.
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # Layanan 2: API Server (Flask)
+  # Dibangun dari Dockerfile di folder yang sama.
+  api:
+    build: .
+    ports:
+      - "5001:5000"
+    volumes:
+      # Sinkronkan kode Anda agar perubahan langsung terlihat di container
+      - .:/app
+    # Jalankan Flask menggunakan server production Gunicorn
+    command: gunicorn --bind 0.0.0.0:5001 --workers 2 api_server:app
+    restart: always
+    depends_on:
+      # Pastikan 'redis' sudah berjalan sebelum 'api' dimulai
+      - redis
+
+  # Layanan 3: Celery Worker
+  # Menggunakan image yang sama dengan 'api' untuk efisiensi.
+  worker:
+    build: .
+    volumes:
+      - .:/app
+    # Jalankan perintah untuk Celery worker
+    command: celery -A celery_task.celery worker --loglevel=info --pool=eventlet
+    restart: always
+    depends_on:
+      # Pastikan 'redis' sudah berjalan sebelum 'worker' dimulai
+      - redis
