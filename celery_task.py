@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 from celery import Celery
 from solver_logic import run_simulation_for_api
 

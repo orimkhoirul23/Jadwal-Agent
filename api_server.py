@@ -1,3 +1,7 @@
+import eventlet
+eventlet.monkey_patch()
+
+
 from flask import Flask, request, jsonify, url_for
 from celery_task import run_solver_task
 

@@ -19,7 +19,7 @@ services:
       # Sinkronkan kode Anda agar perubahan langsung terlihat di container
       - .:/app
     # Jalankan Flask menggunakan server production Gunicorn
-    command: gunicorn --bind 0.0.0.0:5001 --workers 2 api_server:app
+    command: gunicorn --bind 0.0.0.0:5000 -k eventlet --workers 1 api_server:app
     restart: always
     depends_on:
       # Pastikan 'redis' sudah berjalan sebelum 'api' dimulai
