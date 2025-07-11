@@ -3,7 +3,7 @@ from celery_task import run_solver_task
 
 app = Flask(__name__)
 
-@app.route('/generate-schedule', methods=['POST'])
+@app.route('/generate-schedule', methods=['POST'] )
 def start_schedule_generation():
     """Endpoint untuk memulai proses pembuatan jadwal."""
     if not request.is_json:
