@@ -26,12 +26,14 @@ Dependensi: pandas dan openpyxl untuk pemrosesan data dan pembuatan file Excel.
 Endpoint API 🚀
 POST /generate-schedule
 
+
 Body Request (JSON)
+```json
 {
   "year": 2025,
   "month": 8,
   "requests": [
-   {
+  {
       "nip": "400192",
       "jenis": "Libur",
       "tanggal": "2025-08-18"
@@ -41,26 +43,27 @@ Body Request (JSON)
     "2025-08-17"
   ]
 }
-
+```
+```json
 Respon Sukses 
 {
   "message": "Proses pembuatan jadwal dimulai.",
   "status_check_url": "/status/some-unique-task-id"
 }
-
+```
 2. GET /status/<task_id>
 Frontend menggunakan status_check_url yang diterima untuk menanyakan status tugas secara berkala (misalnya, setiap 5 detik).
 
 Respons Saat Proses Berjalan (PENDING)
 
-
+```json
 {
   "state": "PENDING",
   "status": "Tugas sedang menunggu untuk dijalankan atau sedang dalam proses."
 }
-
+```
 Response Succes 
-
+```json
 {
   "state": "SUCCESS",
   "status": "Tugas berhasil diselesaikan.",
@@ -75,5 +78,5 @@ Response Succes
     }
   }
 }
-
+```
 
