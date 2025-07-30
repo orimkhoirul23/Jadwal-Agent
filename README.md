@@ -13,11 +13,15 @@ Pemrosesan Asinkron (Polling): Dirancang untuk menangani proses solving yang mun
 Output Terstruktur: Menghasilkan jadwal lengkap dan ringkasan harian dalam format JSON yang bersih.
 
 Arsitektur & Teknologi ⚙️
-Framework: Flask sebagai web server sederhana untuk menerima request.
+Framework: Flask sebagai web server untuk menerima request.
 
 Mesin Solver: Google OR-Tools (CP-SAT) sebagai inti dari logika optimisasi.
 
-Dependensi: pandas dan openpyxl untuk pemrosesan data dan pembuatan file Excel sebagai output akhir
+Antrian Tugas (Task Queue): Celery untuk mengelola dan menjalankan tugas-tugas berat (seperti proses solving) secara terpisah di latar belakang (background worker).
+
+Message Broker: Redis atau RabbitMQ (pilih salah satu) sebagai perantara yang menyimpan antrian tugas untuk Celery.
+
+Dependensi: pandas dan openpyxl untuk pemrosesan data dan pembuatan file Excel.
 
 Endpoint API 🚀
 POST /generate-schedule
@@ -44,6 +48,32 @@ Respon Sukses
   "status_check_url": "/status/some-unique-task-id"
 }
 
+2. GET /status/<task_id>
+Frontend menggunakan status_check_url yang diterima untuk menanyakan status tugas secara berkala (misalnya, setiap 5 detik).
 
+Respons Saat Proses Berjalan (PENDING)
+
+
+{
+  "state": "PENDING",
+  "status": "Tugas sedang menunggu untuk dijalankan atau sedang dalam proses."
+}
+
+Response Succes 
+
+{
+  "state": "SUCCESS",
+  "status": "Tugas berhasil diselesaikan.",
+  "result": {
+    "schedule": {
+      "NIP1": ["ROLE1", "ROLE2", "Libur", "..."],
+      "NIP2": ["ROLE3", "Libur", ROLE3", "..."]
+    },
+    "summary": {
+      "1": { "ROLE1": 2, "ROLE2": 1, ... },
+      "2": { "ROLE2": 1, "Libur": 2, ... }
+    }
+  }
+}
 
 
