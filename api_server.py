@@ -17,22 +17,30 @@ def start_schedule_generation():
         return jsonify({"error": "Request harus JSON"}), 400
 
     data = request.get_json()
-    requests = data.get('requests')
+    requests_data = data.get('requests')
     year = data.get('year')
     month = data.get('month')
-    public_holidays=data.get('public_holidays')
+    public_holidays = data.get('public_holidays')
 
-    if requests is None or year is None or month is None:
+    if requests_data is None or year is None or month is None:
         return jsonify({"error": "Parameter 'requests', 'year', dan 'month' dibutuhkan"}), 400
 
-    task = run_solver_task.delay(requests, year, month,public_holidays)
+    # =================================================================
+    # --- [PERUBAHAN] Mengubah 'Cuti Lainnya' menjadi 'Cuti' ---
+    # =================================================================
+    for req in requests_data:
+        if req.get('jenis') == 'Cuti Lainnya':
+            req['jenis'] = 'Cuti'
+    # =================================================================
+
+    # Kirim data yang sudah bersih ke Celery
+    task = run_solver_task.delay(requests_data, year, month, public_holidays)
 
     return jsonify({
         "message": "Proses pembuatan jadwal dimulai.",
         "task_id": task.id,
         "status_check_url": url_for('check_task_status', task_id=task.id, _external=True)
     }), 202
-
 # [MODIFIKASI UTAMA DI FUNGSI INI]
 @app.route('/check-status/<task_id>', methods=['GET'])
 def check_task_status(task_id):

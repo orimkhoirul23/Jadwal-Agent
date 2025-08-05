@@ -2,7 +2,7 @@ import eventlet
 eventlet.monkey_patch()
 
 from celery import Celery
-from solver_logic import run_simulation_for_api
+from solver_2 import run_simulation_for_api
 
 # Konfigurasi Celery untuk terhubung ke Redis
 celery = Celery(

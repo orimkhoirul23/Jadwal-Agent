@@ -544,8 +544,8 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     apply_pre_assignments(model, shifts, pre_assignments, shift_map)
     apply_core_constraints(model, shifts, employees, days, demand, day_types, shift_map)
     apply_employee_monthly_rules(model, shifts, employees_data, days, assignable_roles, non_work_statuses, employee_map, shift_map, max_work_days, forbidden_shifts_by_group, num_weekends,min_work_days,min_libur,code_to_nip_map)
-    apply_night_shift_rules(model, shifts, employees_data, days, female_employees, night_shifts, employee_map, shift_map)
-    apply_additional_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map, male_employees, male_bandung_indices, night_shift_indices,public_holidays,target_year,target_month)
+    #apply_night_shift_rules(model, shifts, employees_data, days, female_employees, night_shifts, employee_map, shift_map)
+    #apply_additional_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map, male_employees, male_bandung_indices, night_shift_indices,public_holidays,target_year,target_month)
     
     
     objective_function = apply_soft_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map)
@@ -1147,7 +1147,7 @@ if __name__ == '__main__':
         target_year=target_year_num,
         target_month=target_month_num,
         public_holidays=daftar_tanggal_merah, # <-- Kirim daftar sebagai argumen
-        num_runs=1)
+        num_runs=5)
     
     
     print("\n" + "="*80)
