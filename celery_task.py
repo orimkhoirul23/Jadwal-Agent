@@ -15,6 +15,6 @@ celery = Celery(
 def run_solver_task(pre_assignment_requests, target_year, target_month,public_holidays):
     """Tugas yang akan dijalankan oleh Celery di latar belakang."""
     print(f"Menerima tugas untuk {target_month}/{target_year}...")
-    result = run_simulation_for_api(pre_assignment_requests, target_year, target_month,public_holidays,num_runs=3)
+    result = run_simulation_for_api(pre_assignment_requests, target_year, target_month,public_holidays,num_runs=1)
     print("Tugas selesai.")
     return result

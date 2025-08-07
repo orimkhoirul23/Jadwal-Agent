@@ -35,7 +35,7 @@ def apply_core_constraints(model, shifts, employees, days, demand, day_types, sh
 def apply_employee_monthly_rules(model, shifts, employees_data, days, roles, non_work_statuses, employee_map, shift_map, max_work_days, forbidden_shifts_by_group, num_weekends,min_work_days,min_libur,code_to_nip_map):
     
     # --- Persiapan untuk aturan spesifik (dilakukan sekali di luar loop) ---
-    forbidden_shifts_for_400201 = ['SOC6', 'SOC2', 'SOCM']
+    forbidden_shifts_for_400201 = ['SOC6', 'SOC2', 'SOCM','M']
     forbidden_indices_for_400201 = [shift_map.get(s) for s in forbidden_shifts_for_400201]
 
     target_nip = "400201"
@@ -175,6 +175,9 @@ def apply_additional_constraints(model, shifts, employees_data, days, day_types,
     # =================================================================
     # ATURAN YANG BERLAKU PER INDIVIDU
     # =================================================================
+
+
+    
     for e_idx, (e_name, group) in enumerate(employees_data):
         
         # Aturan 1: Maksimal 6 hari kerja berturut-turut
@@ -191,8 +194,8 @@ def apply_additional_constraints(model, shifts, employees_data, days, day_types,
         
         # Aturan 3: Batasan Kerja Akhir Pekan per Grup
         weekend_work_days = sum(shifts[e_idx, d, s_idx] for d in days if day_types[d] in ['Sabtu', 'Minggu'] for s_idx in work_shift_indices)
-        if group == 'FB': model.AddLinearConstraint(weekend_work_days, 3, 4)
-        if group == 'MB': model.AddLinearConstraint(weekend_work_days, 4, 5)
+        if group == 'FB': model.AddLinearConstraint(weekend_work_days, 3, 5)
+        if group == 'MB': model.AddLinearConstraint(weekend_work_days, 4, 6)
 
         # Aturan 4: Shift Malam di H-1 Tanggal Merah Dihitung Kerja
         for d_before in days_before_holiday:
@@ -226,7 +229,55 @@ def apply_additional_constraints(model, shifts, employees_data, days, day_types,
                 for e_idx in non_mb_indices: model.Add(shifts[e_idx, d, s_p9_idx] == 0)
     
      
+def apply_jakarta_monthly_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map, roles, max_work_days, min_work_days, num_weekends, min_libur, forbidden_shifts_by_group):
+    """
+    Menerapkan semua aturan bulanan dan aturan wajib akhir pekan
+    yang spesifik untuk karyawan Jakarta.
+    """
+    # --- 1. Definisi Variabel yang Relevan ---
+    s_libur_idx = shift_map.get('Libur')
+    s_cuti_idx = shift_map.get('Cuti')
     
+    jakarta_indices = [employee_map.get(e[0]) for e in employees_data if e[1] in ['MJ', 'CJ']]
+    
+    if s_libur_idx is None or s_cuti_idx is None or len(jakarta_indices) != 3:
+        print("Warning: Aturan bulanan Jakarta tidak dapat diterapkan.")
+        return
+
+    # --- 2. Terapkan Aturan ---
+    # Loop untuk setiap karyawan Jakarta
+    for e_idx in jakarta_indices:
+        
+        # --- Aturan Bulanan (Total Hari Kerja & Libur) ---
+        work_indices = [shift_map.get(s) for s in roles if s in shift_map]
+        total_work_days = sum(shifts[(e_idx, d, s_idx)] for d in days for s_idx in work_indices)
+        model.Add(total_work_days <= max_work_days)
+        model.Add(total_work_days >= min_work_days)
+        
+        total_libur = sum(shifts[(e_idx, d, s_libur_idx)] for d in days)
+        model.AddLinearConstraint(total_libur, min_libur, num_weekends)
+
+        # --- Aturan Larangan Shift berdasarkan Grup ---
+        group = 'MJ' if employees_data[e_idx][1] == 'MJ' else 'CJ' # Dapatkan grup dari e_idx
+        forbidden_roles = forbidden_shifts_by_group.get(group, [])
+        if forbidden_roles:
+            forbidden_indices = [shift_map.get(role) for role in forbidden_roles if role in shift_map]
+            for d in days:
+                for s_idx in forbidden_indices:
+                    if s_idx is not None:
+                        model.Add(shifts[e_idx, d, s_idx] == 0)
+
+    # =================================================================
+    # --- [ATURAN BARU] Aturan Wajib Libur Akhir Pekan untuk Tim Jakarta ---
+    # =================================================================
+    for d in days:
+        if day_types[d] in ['Sabtu', 'Minggu']:
+            # Hitung jumlah karyawan Jakarta yang 'Libur' pada hari ini
+            jakarta_libur_count = sum(shifts[e_idx, d, s_libur_idx] for e_idx in jakarta_indices)
+
+            # Aturan wajib: Tepat 2 orang harus Libur
+            model.Add(jakarta_libur_count == 2)
+
   
 def apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map):
     """Menerapkan semua aturan pola kerja baru yang spesifik untuk karyawan Jakarta."""
@@ -244,6 +295,201 @@ def apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee
     jakarta_indices = [employee_map.get(e[0]) for e in employees_data if e[1] in ['MJ', 'CJ']]
     
     if not all([s_libur_idx, s_cuti_idx, s_p7_idx, s_p8_idx, s_p9_idx, s_p10_idx, s_p11_idx, s_m_idx]) or len(jakarta_indices) != 3:
+        print("Warning: Aturan Jakarta tidak dapat diterapkan karena shift atau jumlah karyawan tidak sesuai.")
+        return
+
+    # --- 2. Terapkan Aturan untuk Setiap Hari ---
+    for d in days:
+        # Hitung jumlah shift relevan untuk grup Jakarta pada hari d
+        jakarta_off_count = sum(shifts[e_idx, d, s_libur_idx] + shifts[e_idx, d, s_cuti_idx] for e_idx in jakarta_indices)
+        jakarta_p7_count = sum(shifts[e_idx, d, s_p7_idx] for e_idx in jakarta_indices)
+        jakarta_p8_count = sum(shifts[e_idx, d, s_p8_idx] for e_idx in jakarta_indices)
+        jakarta_p9_count = sum(shifts[e_idx, d, s_p9_idx] for e_idx in jakarta_indices)
+        jakarta_p10_count = sum(shifts[e_idx, d, s_p10_idx] for e_idx in jakarta_indices)
+        jakarta_p11_count = sum(shifts[e_idx, d, s_p11_idx] for e_idx in jakarta_indices)
+        jakarta_m_count = sum(shifts[e_idx, d, s_m_idx] for e_idx in jakarta_indices)
+
+        # Aturan Umum: Karyawan Jakarta tidak pernah boleh libur/cuti bertiga di hari yang sama
+        model.Add(jakarta_off_count != 3)
+
+        # --- Skenario Hari Biasa (Weekday) ---
+        if day_types[d] == 'Weekday':
+            # Aturan baru: Di hari biasa, tidak boleh ada 2 orang yang libur/cuti
+            model.Add(jakarta_off_count != 2)
+
+            # Pemicu: Jika TEPAT 1 orang libur/cuti
+            trigger_1_off = model.NewBoolVar(f'jkt_1_off_d{d}')
+            model.Add(jakarta_off_count == 1).OnlyEnforceIf(trigger_1_off)
+            model.Add(jakarta_off_count != 1).OnlyEnforceIf(trigger_1_off.Not())
+            
+            # Konsekuensi: WAJIB memilih salah satu dari dua komposisi tim berikut
+            # Pilihan 1: Tim terdiri dari (Libur/Cuti), P7, P9
+            combo_p7_p9 = model.NewBoolVar(f'jkt_combo_p7p9_d{d}')
+            model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo_p7_p9)
+            model.Add(jakarta_p9_count == 1).OnlyEnforceIf(combo_p7_p9)
+            model.Add(jakarta_p10_count == 0).OnlyEnforceIf(combo_p7_p9) # Pastikan P10 tidak ada
+            model.Add(jakarta_p8_count == 0).OnlyEnforceIf(combo_p7_p9)
+            model.Add(jakarta_p11_count == 0).OnlyEnforceIf(combo_p7_p9)
+            model.Add(jakarta_m_count == 0).OnlyEnforceIf(combo_p7_p9)
+
+            # Pilihan 2: Tim terdiri dari (Libur/Cuti), P7, P10
+            combo_p7_p10 = model.NewBoolVar(f'jkt_combo_p7p10_d{d}')
+            model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo_p7_p10)
+            model.Add(jakarta_p10_count == 1).OnlyEnforceIf(combo_p7_p10)
+            model.Add(jakarta_p9_count == 0).OnlyEnforceIf(combo_p7_p10) # Pastikan P9 tidak ada
+            model.Add(jakarta_p8_count == 0).OnlyEnforceIf(combo_p7_p10)
+            model.Add(jakarta_p11_count == 0).OnlyEnforceIf(combo_p7_p10)
+            model.Add(jakarta_m_count == 0).OnlyEnforceIf(combo_p7_p10)
+            
+            # Constraint utama: Jika 1 orang libur, maka (pilihan 1 + pilihan 2) harus sama dengan 1
+            model.Add(combo_p7_p9 + combo_p7_p10 == 1).OnlyEnforceIf(trigger_1_off)
+
+            # Pemicu: Jika TIDAK ADA yang libur/cuti
+            trigger_0_off = model.NewBoolVar(f'jkt_0_off_d{d}')
+            model.Add(jakarta_off_count == 0).OnlyEnforceIf(trigger_0_off)
+            model.Add(jakarta_off_count != 0).OnlyEnforceIf(trigger_0_off.Not())
+            
+            # Konsekuensi: WAJIB memilih salah satu dari 4 kombinasi tim
+            combo1 = model.NewBoolVar(f'jkt_combo1_d{d}') # P7, P9, M
+            combo2 = model.NewBoolVar(f'jkt_combo2_d{d}') # P7, P9, P11
+            combo3 = model.NewBoolVar(f'jkt_combo3_d{d}') # P7, P10, M
+            combo4 = model.NewBoolVar(f'jkt_combo4_d{d}') # P7, P10, P11
+            
+            model.Add(combo1 + combo2 + combo3 + combo4 == 1).OnlyEnforceIf(trigger_0_off)
+            
+            # Definisikan setiap kombinasi
+            model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo1); model.Add(jakarta_p9_count == 1).OnlyEnforceIf(combo1); model.Add(jakarta_m_count == 1).OnlyEnforceIf(combo1)
+            model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo2); model.Add(jakarta_p9_count == 1).OnlyEnforceIf(combo2); model.Add(jakarta_p11_count == 1).OnlyEnforceIf(combo2)
+            model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo3); model.Add(jakarta_p10_count == 1).OnlyEnforceIf(combo3); model.Add(jakarta_m_count == 1).OnlyEnforceIf(combo3)
+            model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo4); model.Add(jakarta_p10_count == 1).OnlyEnforceIf(combo4); model.Add(jakarta_p11_count == 1).OnlyEnforceIf(combo4)
+
+        # --- Skenario Akhir Pekan (Weekend) ---
+        elif day_types[d] in ['Sabtu', 'Minggu']:
+            # Aturan wajib: 2 orang off, 1 orang P8
+            model.Add(jakarta_off_count == 2)
+            model.Add(jakarta_p8_count == 1)
+
+def apply_bandung_monthly_rules(model, shifts, employees_data, days, roles, employee_map, shift_map, max_work_days, min_work_days, num_weekends, min_libur, forbidden_shifts_by_group, code_to_nip_map):
+    """Menerapkan semua aturan bulanan yang spesifik untuk karyawan Bandung."""
+    
+    # Aturan Larangan Shift untuk NIP 400201 (diasumsikan karyawan Bandung)
+    target_nip = "400201"
+    target_e_idx = -1
+    for e_code, nip in code_to_nip_map.items():
+        if nip == target_nip and e_code in employee_map:
+            target_e_idx = employee_map[e_code]
+            break
+    forbidden_shifts_for_target = [shift_map.get(s) for s in ['SOC6', 'SOC2', 'SOCM', 'M']]
+
+    # Loop hanya untuk karyawan Bandung
+    for e_idx, (e_name, group) in enumerate(employees_data):
+        if group in ['FB', 'MB']:
+            
+            # --- Aturan Hari Kerja & Libur ---
+            work_indices = [shift_map.get(s) for s in roles if s in shift_map]
+            total_work_days = sum(shifts[(e_idx, d, s_idx)] for d in days for s_idx in work_indices)
+            model.Add(total_work_days <= max_work_days)
+            model.Add(total_work_days >= min_work_days)
+            
+            total_libur = sum(shifts[(e_idx, d, shift_map.get('Libur'))] for d in days)
+            model.AddLinearConstraint(total_libur, min_libur, num_weekends)
+
+            # --- Aturan Spesifik Grup & Individu Bandung ---
+            if e_idx == target_e_idx:
+                for d in days:
+                    for s_idx in forbidden_shifts_for_target:
+                        if s_idx is not None: model.Add(shifts[e_idx, d, s_idx] == 0)
+            
+            if group == 'FB' and 'M' in shift_map:
+                model.Add(sum(shifts[(e_idx, d, shift_map['M'])] for d in days) == 2)
+            
+            forbidden_roles = forbidden_shifts_by_group.get(group, [])
+            if forbidden_roles:
+                forbidden_indices = [shift_map.get(role) for role in forbidden_roles if role in shift_map]
+                for d in days:
+                    for s_idx in forbidden_indices:
+                        if s_idx is not None: model.Add(shifts[e_idx, d, s_idx] == 0)
+
+def apply_jakarta_monthly_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map, roles, max_work_days, min_work_days, num_weekends, min_libur, forbidden_shifts_by_group):
+    """
+    Menerapkan semua aturan bulanan dan aturan wajib akhir pekan
+    yang spesifik untuk karyawan Jakarta.
+    """
+    # --- 1. Definisi Variabel yang Relevan ---
+    s_libur_idx = shift_map.get('Libur')
+    s_p8_idx = shift_map.get('P8')
+    s_cuti_idx = shift_map.get('Cuti')
+    jakarta_indices = [employee_map.get(e[0]) for e in employees_data if e[1] in ['MJ', 'CJ']]
+    
+    if s_libur_idx is None or len(jakarta_indices) != 3:
+        print("Warning: Aturan bulanan Jakarta tidak dapat diterapkan.")
+        return
+
+    # --- 2. Terapkan Aturan Bulanan (per Individu) ---
+    for e_idx in jakarta_indices:
+        
+        # --- Aturan Total Hari Kerja & Libur ---
+        work_indices = [shift_map.get(s) for s in roles if s in shift_map]
+        total_work_days = sum(shifts[(e_idx, d, s_idx)] for d in days for s_idx in work_indices)
+        model.Add(total_work_days <= max_work_days)
+        model.Add(total_work_days >= min_work_days)
+        
+        total_libur = sum(shifts[(e_idx, d, s_libur_idx)] for d in days)
+        model.AddLinearConstraint(total_libur, min_libur, num_weekends)
+
+        # --- Aturan Larangan Shift berdasarkan Grup ---
+        group = employees_data[e_idx][1] # Dapatkan grup dari e_idx
+        forbidden_roles = forbidden_shifts_by_group.get(group, [])
+        if forbidden_roles:
+            forbidden_indices = [shift_map.get(role) for role in forbidden_roles if role in shift_map]
+            for d in days:
+                for s_idx in forbidden_indices:
+                    if s_idx is not None:
+                        model.Add(shifts[e_idx, d, s_idx] == 0)
+
+    # =================================================================
+    # --- [ATURAN BARU] Aturan Wajib Libur Akhir Pekan untuk Tim Jakarta ---
+    # =================================================================
+    for d in days:
+        if day_types[d] in ['Sabtu', 'Minggu']:
+            
+            # ✅ PERBAIKAN: Hitung jumlah karyawan Jakarta yang 'Libur' ATAU 'Cuti'
+            jakarta_off_count = sum(shifts[e_idx, d, s_libur_idx] + shifts[e_idx, d, s_cuti_idx] for e_idx in jakarta_indices)
+            
+            
+
+            # Aturan wajib: 2 orang off (Libur/Cuti), 1 orang P8
+            model.Add(jakarta_off_count == 2)
+            
+
+def apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map):
+    """Menerapkan semua aturan pola kerja baru yang spesifik untuk karyawan Jakarta."""
+
+    # --- 1. Definisi Variabel yang Relevan ---
+    s_libur_idx = shift_map.get('Libur')
+    s_cuti_idx = shift_map.get('Cuti')
+    s_p7_idx = shift_map.get('P7')
+    s_p8_idx = shift_map.get('P8')
+    s_p9_idx = shift_map.get('P9')
+    s_p10_idx = shift_map.get('P10')
+    s_p11_idx = shift_map.get('P11')
+    s_m_idx = shift_map.get('M')
+    
+    jakarta_indices = [employee_map.get(e[0]) for e in employees_data if e[1] in ['MJ', 'CJ']]
+    
+    if not all([s_libur_idx, s_cuti_idx, s_p7_idx, s_p8_idx, s_p9_idx, s_p10_idx, s_p11_idx, s_m_idx]) or len(jakarta_indices) != 3:
+        print("Warning: Aturan Jakarta tidak dapat diterapkan.")
+        return
+    
+    print(f"[DEBUG] Jumlah karyawan Jakarta ditemukan: {len(jakarta_indices)}")
+    if len(jakarta_indices) != 3:
+        print("[DEBUG] GAGAL: Jumlah karyawan Jakarta bukan 3.")
+    
+    required_shifts_exist = all([s_libur_idx, s_cuti_idx, s_p7_idx, s_p8_idx, s_p9_idx, s_p10_idx, s_p11_idx, s_m_idx])
+    if not required_shifts_exist:
+        print("[DEBUG] GAGAL: Salah satu shift yang dibutuhkan tidak ada di shift_map.")
+
+    if not required_shifts_exist or len(jakarta_indices) != 3:
         print("Warning: Aturan Jakarta tidak dapat diterapkan.")
         return
 
@@ -269,15 +515,13 @@ def apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee
             combo_p7_p9 = model.NewBoolVar(f'jkt_combo_p7p9_d{d}')
             model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo_p7_p9)
             model.Add(jakarta_p9_count == 1).OnlyEnforceIf(combo_p7_p9)
-            # Pastikan shift lain nol
-            model.Add(jakarta_p10_count == 0).OnlyEnforceIf(combo_p7_p9)
+            
 
             # Pilihan 2: Tim terdiri dari (Libur/Cuti), P7, P10
             combo_p7_p10 = model.NewBoolVar(f'jkt_combo_p7p10_d{d}')
             model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo_p7_p10)
             model.Add(jakarta_p10_count == 1).OnlyEnforceIf(combo_p7_p10)
-            # Pastikan shift lain nol
-            model.Add(jakarta_p9_count == 0).OnlyEnforceIf(combo_p7_p10)
+            
             
             # Constraint utama: Jika 1 orang libur, maka (pilihan 1 + pilihan 2) harus sama dengan 1
             model.Add(combo_p7_p9 + combo_p7_p10 == 1).OnlyEnforceIf(trigger_1_off)
@@ -301,17 +545,17 @@ def apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee
             model.Add(jakarta_p7_count == 1).OnlyEnforceIf(combo4); model.Add(jakarta_p10_count == 1).OnlyEnforceIf(combo4); model.Add(jakarta_p11_count == 1).OnlyEnforceIf(combo4)
 
         # --- Skenario Akhir Pekan (Weekend) ---
+    
         elif day_types[d] in ['Sabtu', 'Minggu']:
-            # Pemicu: Jika TEPAT 2 orang libur/cuti
-            trigger_2_off = model.NewBoolVar(f'jkt_2_off_weekend_d{d}')
-            model.Add(jakarta_off_count == 2).OnlyEnforceIf(trigger_2_off)
-            model.Add(jakarta_off_count != 2).OnlyEnforceIf(trigger_2_off.Not())
+            # Aturan wajib: 2 orang off (Libur/Cuti), 1 orang P8
+            model.Add(jakarta_off_count == 2)
+            model.Add(jakarta_p8_count == 1)
+        
             
-            # Konsekuensi: sisanya wajib P8
-            model.Add(jakarta_p8_count == 1).OnlyEnforceIf(trigger_2_off)
    
 
-    
+
+
 def apply_soft_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map):
     """Menerapkan semua soft constraints dan mengembalikan objective function."""
     
@@ -325,11 +569,14 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
         ('P7', 'MB', 0, 1, 10), ('P8', 'MB', 0, 3, 10), ('P9', 'MB', 0, 4, 10),
         ('P10', 'MB', 0, 5, 10), ('P11', 'MB', 1, 2, 10), ('S12', 'MB', 1, 9, 10),
         ('M', 'MB', 1, 3, 10), ('SOCM', 'MB', 1, 3, 10), ('SOC2', 'MB', 1, 3, 10),
-        ('SOC6', 'MB', 0, 1, 10), ('P7', 'MJ', 1, 8, 10), ('P8', 'MJ', 1, 3, 10),
+        ('SOC6', 'MB', 0, 1, 10), ('P7', 'MJ', 1, 8, 10), ('P8', 'MJ', 2, 5, 10),
         ('P9', 'MJ', 1, 7, 10), ('P11', 'MJ', 1, 4, 10), ('M', 'MJ', 1, 2, 10),
-        ('P7', 'CJ', 1, 8, 10), ('P8', 'CJ', 1, 3, 10), ('P10', 'CJ', 1, 9, 10),
+        ('P7', 'CJ', 1, 8, 10), ('P8', 'CJ', 2, 5, 10), ('P10', 'CJ', 1, 9, 10),
         ('P11', 'CJ', 1, 4, 10), ('M', 'CJ', 1, 2, 10),
     ]
+
+
+    
     for shift_name, group, min_val, max_val, weight in preferences_with_range:
         s_idx = shift_map.get(shift_name)
         if s_idx is None: continue
@@ -431,6 +678,24 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
             
             # Tambahkan selisih sebagai penalti ke skor total
             total_score_vars.append(shift_range * -10)
+    
+    all_soc_indices = [shift_map.get(s) for s in ['SOCM', 'SOC2', 'SOC6'] if s in shift_map]
+    if all_soc_indices:
+        male_bandung_indices = [employee_map.get(e[0]) for e in employees_data if e[1] == 'MB']
+        if male_bandung_indices:
+            # Hitung total semua shift SOC untuk setiap karyawan MB
+            totals = [sum(shifts[e_idx, d, s_idx] for d in days for s_idx in all_soc_indices) for e_idx in male_bandung_indices]
+            
+            # Cari selisih antara yang paling banyak dan paling sedikit
+            min_soc, max_soc = model.NewIntVar(0, num_days, ''), model.NewIntVar(0, num_days, '')
+            model.AddMinEquality(min_soc, totals)
+            model.AddMaxEquality(max_soc, totals)
+            soc_range = model.NewIntVar(0, num_days, 'all_soc_range')
+            model.Add(soc_range == max_soc - min_soc)
+            
+            # Tambahkan penalti untuk selisih tersebut
+            total_score_vars.append(soc_range * -10)
+
     if s_p8_idx is not None and s_libur_idx is not None:
         # a. Dapatkan daftar indeks karyawan Jakarta
         jakarta_indices = [employee_map[e[0]] for e in employees_data if e[1] in ['MJ', 'CJ']]
@@ -513,7 +778,7 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     min_work_days = num_days - num_weekends  
     min_libur = num_weekends-len(holidays_in_month) 
     
-    print(holidays_in_month, min_libur, num_weekends, min_work_days, max_work_days)
+    
 
     assignable_roles = ['P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'S12', 'M', 'SOCM', 'SOC2', 'SOC6']
     count_as_work_roles = assignable_roles + ['Cuti']
@@ -566,7 +831,7 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     # Panggil semua fungsi aturan
     apply_pre_assignments(model, shifts, pre_assignments, shift_map)
     apply_core_constraints(model, shifts, employees, days, demand, day_types, shift_map)
-    apply_employee_monthly_rules(model, shifts, employees_data, days,  count_as_work_roles,non_work_statuses, employee_map, shift_map, max_work_days, forbidden_shifts_by_group, num_weekends,min_work_days,min_libur,code_to_nip_map)
+    apply_employee_monthly_rules(model, shifts, employees_data, days, count_as_work_roles, non_work_statuses, employee_map, shift_map, max_work_days, forbidden_shifts_by_group, num_weekends,min_work_days,min_libur,code_to_nip_map)
     apply_night_shift_rules(model, shifts, employees_data, days, female_employees, night_shifts, employee_map, shift_map)
     apply_additional_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map, male_employees, male_bandung_indices, night_shift_indices, public_holidays, target_year, target_month)
     apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map)
@@ -580,8 +845,9 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     # --- 5. JALANKAN SOLVER ---
     # =================================================================
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 300.0
+    solver.parameters.max_time_in_seconds = 400.0
     solver.parameters.log_search_progress = False
+    solver.parameters.num_search_workers = 4
     status = solver.Solve(model)
     
     if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
@@ -656,507 +922,101 @@ if __name__ == '__main__':
     target_month_num = 8 # Ganti bulan sesuai kebutuhan
     
     contoh_requests = [
-     {
-      "nip": 400217,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-18"
-    },
-    {
-      "nip": 400198,
-      "jenis": "Libur",
-      "tanggal": "2025-08-02"
-    },
-    {
-      "nip": 400198,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 400198,
-      "jenis": "Libur",
-      "tanggal": "2025-08-31"
-    },
-    {
-      "nip": 400213,
-      "jenis": "Libur",
-      "tanggal": "2025-08-07"
-    },
-    {
-      "nip": 400213,
-      "jenis": "Libur",
-      "tanggal": "2025-08-15"
-    },
-    {
-      "nip": 400213,
-      "jenis": "Libur",
-      "tanggal": "2025-08-08"
-    },
-    {
-      "nip": 400090,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 400090,
-      "jenis": "Libur",
-      "tanggal": "2025-08-30"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Libur",
-      "tanggal": "2025-08-10"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Libur",
-      "tanggal": "2025-08-16"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-06"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-07"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-08"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-11"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-12"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-13"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-14"
-    },
-    {
-      "nip": 401107,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-15"
-    },
-    {
-      "nip": 400202,
-      "jenis": "Libur",
-      "tanggal": "2025-08-15"
-    },
-    {
-      "nip": 400202,
-      "jenis": "Libur",
-      "tanggal": "2025-08-22"
-    },
-    {
-      "nip": 400202,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-29"
-    },
-    {
-      "nip": 400189,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 400189,
-      "jenis": "Libur",
-      "tanggal": "2025-08-23"
-    },
-    {
-      "nip": 400189,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-07"
-    },
-    {
-      "nip": 400189,
-      "jenis": "Libur",
-      "tanggal": "2025-08-24"
-    },
-    {
-      "nip": 400209,
-      "jenis": "Libur",
-      "tanggal": "2025-08-16"
-    },
-    {
-      "nip": 400209,
-      "jenis": "Libur",
-      "tanggal": "2025-08-23"
-    },
-    {
-      "nip": 400209,
-      "jenis": "Libur",
-      "tanggal": "2025-08-24"
-    },
-    {
-      "nip": 401136,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 401136,
-      "jenis": "Libur",
-      "tanggal": "2025-08-28"
-    },
-    {
-      "nip": 401136,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-14"
-    },
-    {
-      "nip": 401136,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-15"
-    },
-    {
-      "nip": 401524,
-      "jenis": "Libur",
-      "tanggal": "2025-08-02"
-    },
-    {
-      "nip": 401524,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 401524,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-15"
-    },
-    {
-      "nip": 401524,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-18"
-    },
-    {
-      "nip": 400092,
-      "jenis": "Libur",
-      "tanggal": "2025-08-22"
-    },
-    {
-      "nip": 400092,
-      "jenis": "Libur",
-      "tanggal": "2025-08-29"
-    },
-    {
-      "nip": 400204,
-      "jenis": "Libur",
-      "tanggal": "2025-08-18"
-    },
-    {
-      "nip": 400204,
-      "jenis": "Libur",
-      "tanggal": "2025-08-31"
-    },
-    {
-      "nip": 400201,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 400201,
-      "jenis": "Libur",
-      "tanggal": "2025-08-13"
-    },
-    {
-      "nip": 400201,
-      "jenis": "Libur",
-      "tanggal": "2025-08-14"
-    },
-    {
-      "nip": 400210,
-      "jenis": "Libur",
-      "tanggal": "2025-08-05"
-    },
-    {
-      "nip": 400210,
-      "jenis": "Libur",
-      "tanggal": "2025-08-14"
-    },
-    {
-      "nip": 400210,
-      "jenis": "Libur",
-      "tanggal": "2025-08-28"
-    },
-    {
-      "nip": 400216,
-      "jenis": "Libur",
-      "tanggal": "2025-08-02"
-    },
-    {
-      "nip": 400216,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 400216,
-      "jenis": "Libur",
-      "tanggal": "2025-08-31"
-    },
-    {
-      "nip": 400091,
-      "jenis": "Libur",
-      "tanggal": "2025-08-06"
-    },
-    {
-      "nip": 400091,
-      "jenis": "Libur",
-      "tanggal": "2025-08-28"
-    },
-    {
-      "nip": 400212,
-      "jenis": "Libur",
-      "tanggal": "2025-08-02"
-    },
-    {
-      "nip": 400212,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 400212,
-      "jenis": "Libur",
-      "tanggal": "2025-08-04"
-    },
-    {
-      "nip": 400193,
-      "jenis": "Libur",
-      "tanggal": "2025-08-11"
-    },
-    {
-      "nip": 400193,
-      "jenis": "Libur",
-      "tanggal": "2025-08-18"
-    },
-    {
-      "nip": 400093,
-      "jenis": "Libur",
-      "tanggal": "2025-08-13"
-    },
-    {
-      "nip": 400093,
-      "jenis": "Libur",
-      "tanggal": "2025-08-18"
-    },
-    {
-      "nip": 400093,
-      "jenis": "Libur",
-      "tanggal": "2025-08-29"
-    },
-    {
-      "nip": 400093,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-28"
-    },
-    {
-      "nip": 401138,
-      "jenis": "Libur",
-      "tanggal": "2025-08-02"
-    },
-    {
-      "nip": 401138,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 401138,
-      "jenis": "Libur",
-      "tanggal": "2025-08-16"
-    },
-    {
-      "nip": 401144,
-      "jenis": "Libur",
-      "tanggal": "2025-08-02"
-    },
-    {
-      "nip": 401144,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 400211,
-      "jenis": "Libur",
-      "tanggal": "2025-08-29"
-    },
-    {
-      "nip": 400211,
-      "jenis": "Libur",
-      "tanggal": "2025-08-30"
-    },
-    {
-      "nip": 400211,
-      "jenis": "Libur",
-      "tanggal": "2025-08-31"
-    },
-    {
-      "nip": 400211,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-15"
-    },
-    {
-      "nip": 400206,
-      "jenis": "Libur",
-      "tanggal": "2025-08-03"
-    },
-    {
-      "nip": 400206,
-      "jenis": "Libur",
-      "tanggal": "2025-08-24"
-    },
-    {
-      "nip": 400206,
-      "jenis": "Libur",
-      "tanggal": "2025-08-25"
-    },
-    {
-      "nip": 400087,
-      "jenis": "Libur",
-      "tanggal": "2025-08-02"
-    },
-    {
-      "nip": 400087,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 400087,
-      "jenis": "Libur",
-      "tanggal": "2025-08-10"
-    },
-    {
-      "nip": 400087,
-      "jenis": "Cuti",
-      "tanggal": "2025-08-07"
-    },
-    {
-      "nip": 401108,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 401108,
-      "jenis": "Libur",
-      "tanggal": "2025-08-10"
-    },
-    {
-      "nip": 400203,
-      "jenis": "Libur",
-      "tanggal": "2025-08-27"
-    },
-    {
-      "nip": 400203,
-      "jenis": "Libur",
-      "tanggal": "2025-08-28"
-    },
-    {
-      "nip": 400203,
-      "jenis": "Libur",
-      "tanggal": "2025-08-29"
-    },
-    {
-      "nip": 400192,
-      "jenis": "Libur",
-      "tanggal": "2025-08-24"
-    },
-    {
-      "nip": 400192,
-      "jenis": "Libur",
-      "tanggal": "2025-08-25"
-    },
-    {
-      "nip": 400192,
-      "jenis": "Libur",
-      "tanggal": "2025-08-04"
-    },
-    {
-      "nip": 400196,
-      "jenis": "Libur",
-      "tanggal": "2025-08-01"
-    },
-    {
-      "nip": 400217,
-      "jenis": "Libur",
-      "tanggal": "2025-08-24"
-    },
-    {
-      "nip": 400217,
-      "jenis": "Libur",
-      "tanggal": "2025-08-31"
-    },
-    {
-      "nip": 400090,
-      "jenis": "Libur",
-      "tanggal": "2025-08-01"
-    },
-    {
-      "nip": 400190,
-      "jenis": "Libur",
-      "tanggal": "2025-08-08"
-    },
-    {
-      "nip": 400190,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 400190,
-      "jenis": "Libur",
-      "tanggal": "2025-08-10"
-    },
-    {
-      "nip": 401145,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 401145,
-      "jenis": "Libur",
-      "tanggal": "2025-08-10"
-    },
-    {
-      "nip": 400299,
-      "jenis": "Libur",
-      "tanggal": "2025-08-09"
-    },
-    {
-      "nip": 400299,
-      "jenis": "Libur",
-      "tanggal": "2025-08-10"
-    },
-    {
-      "nip": 400217,
-      "jenis": "Libur",
-      "tanggal": "2025-08-01"
-    },
-    {
-      "nip": 400209,
-      "jenis": "Libur",
-      "tanggal": "2025-08-01"
-    },
-    {
-      "nip": 400189,
-      "jenis": "Libur",
-      "tanggal": "2025-08-01"
-    }
-    ]
+    # ANGGA APIPUTRA (400189) - Cuti 7 Agt dihapus
+    {"nip": "400189", "jenis": "Libur", "tanggal": "2025-08-09"},
+    {"nip": "400189", "jenis": "Libur", "tanggal": "2025-08-23"},
+    {"nip": "400189", "jenis": "Libur", "tanggal": "2025-08-24"},
+    # DIAN KURNIAWAN (400209) - Libur 1 Agt dihapus
+    {"nip": "400209", "jenis": "Libur", "tanggal": "2025-08-16"},
+    {"nip": "400209", "jenis": "Libur", "tanggal": "2025-08-23"},
+    {"nip": "400209", "jenis": "Libur", "tanggal": "2025-08-24"},
+    # FEBRI INDRA WIJAYA (401133) - Semua request dihapus
+    # INDAH NURUL AFIFAH ABDULLAH (400092) - Request diubah
+    {"nip": "400092", "jenis": "Libur", "tanggal": "2025-08-17"},
+    {"nip": "400092", "jenis": "Libur", "tanggal": "2025-08-22"},
+    {"nip": "400092", "jenis": "Libur", "tanggal": "2025-08-29"},
+    # PURI AGI PRATOMO (400217) - Request diubah
+    {"nip": "400217", "jenis": "Libur", "tanggal": "2025-08-17"},
+    {"nip": "400217", "jenis": "Libur", "tanggal": "2025-08-24"},
+    {"nip": "400217", "jenis": "Libur", "tanggal": "2025-08-31"},
+    {"nip": "400217", "jenis": "Cuti", "tanggal": "2025-08-18"},
+    # REZA APRIANA (400090) - Request diubah
+    {"nip": "400090", "jenis": "Libur", "tanggal": "2025-08-09"},
+    {"nip": "400090", "jenis": "Libur", "tanggal": "2025-08-17"},
+    {"nip": "400090", "jenis": "Libur", "tanggal": "2025-08-30"},
+    # SHARAH ISTIQOMAH (400202) - Request diubah
+    {"nip": "400202", "jenis": "Libur", "tanggal": "2025-08-15"},
+    {"nip": "400202", "jenis": "Libur", "tanggal": "2025-08-17"},
+    {"nip": "400202", "jenis": "Libur", "tanggal": "2025-08-22"},
+    {"nip": "400202", "jenis": "Cuti", "tanggal": "2025-08-29"},
+    # --- SISA KARYAWAN (TIDAK BERUBAH) ---
+    {"nip": "400198", "jenis": "Libur", "tanggal": "2025-08-02"},
+    {"nip": "400198", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "400198", "jenis": "Libur", "tanggal": "2025-08-31"},
+    {"nip": "400213", "jenis": "Libur", "tanggal": "2025-08-15"},
+    {"nip": "400213", "jenis": "Libur", "tanggal": "2025-08-07"},
+    {"nip": "400213", "jenis": "Libur", "tanggal": "2025-08-08"},
+    {"nip": "401107", "jenis": "Libur", "tanggal": "2025-08-09"},
+    {"nip": "401107", "jenis": "Libur", "tanggal": "2025-08-10"},
+    {"nip": "401107", "jenis": "Libur", "tanggal": "2025-08-16"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-06"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-07"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-08"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-11"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-12"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-13"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-14"},
+    {"nip": "401107", "jenis": "Cuti", "tanggal": "2025-08-15"},
+    {"nip": "401136", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "401136", "jenis": "Libur", "tanggal": "2025-08-28"},
+    {"nip": "401136", "jenis": "Cuti", "tanggal": "2025-08-14"},
+    {"nip": "401136", "jenis": "Cuti", "tanggal": "2025-08-15"},
+    {"nip": "401524", "jenis": "Libur", "tanggal": "2025-08-02"},
+    {"nip": "401524", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "401524", "jenis": "Cuti", "tanggal": "2025-08-15"},
+    {"nip": "401524", "jenis": "Cuti", "tanggal": "2025-08-18"},
+    {"nip": "400204", "jenis": "Libur", "tanggal": "2025-08-18"},
+    {"nip": "400204", "jenis": "Libur", "tanggal": "2025-08-31"},
+    {"nip": "400201", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "400201", "jenis": "Libur", "tanggal": "2025-08-13"},
+    {"nip": "400201", "jenis": "Libur", "tanggal": "2025-08-14"},
+    {"nip": "400210", "jenis": "Libur", "tanggal": "2025-08-05"},
+    {"nip": "400210", "jenis": "Libur", "tanggal": "2025-08-14"},
+    {"nip": "400210", "jenis": "Libur", "tanggal": "2025-08-28"},
+    {"nip": "400216", "jenis": "Libur", "tanggal": "2025-08-02"},
+    {"nip": "400216", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "400216", "jenis": "Libur", "tanggal": "2025-08-31"},
+    {"nip": "400091", "jenis": "Libur", "tanggal": "2025-08-06"},
+    {"nip": "400091", "jenis": "Libur", "tanggal": "2025-08-28"},
+    {"nip": "400212", "jenis": "Libur", "tanggal": "2025-08-02"},
+    {"nip": "400212", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "400212", "jenis": "Libur", "tanggal": "2025-08-04"},
+    {"nip": "400193", "jenis": "Libur", "tanggal": "2025-08-11"},
+    {"nip": "400193", "jenis": "Libur", "tanggal": "2025-08-18"},
+    {"nip": "401138", "jenis": "Libur", "tanggal": "2025-08-02"},
+    {"nip": "401138", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "401138", "jenis": "Libur", "tanggal": "2025-08-16"},
+    {"nip": "401144", "jenis": "Libur", "tanggal": "2025-08-02"},
+    {"nip": "401144", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "400211", "jenis": "Libur", "tanggal": "2025-08-30"},
+    {"nip": "400211", "jenis": "Libur", "tanggal": "2025-08-31"},
+    {"nip": "400211", "jenis": "Cuti", "tanggal": "2025-08-15"},
+    {"nip": "400206", "jenis": "Libur", "tanggal": "2025-08-24"},
+    {"nip": "400206", "jenis": "Libur", "tanggal": "2025-08-25"},
+    {"nip": "400087", "jenis": "Libur", "tanggal": "2025-08-10"},
+    {"nip": "400087", "jenis": "Cuti", "tanggal": "2025-08-07"},
+    {"nip": "401108", "jenis": "Libur", "tanggal": "2025-08-09"},
+    {"nip": "401108", "jenis": "Libur", "tanggal": "2025-08-10"},
+    {"nip": "400203", "jenis": "Libur", "tanggal": "2025-08-27"},
+    {"nip": "400203", "jenis": "Libur", "tanggal": "2025-08-28"},
+    {"nip": "400203", "jenis": "Libur", "tanggal": "2025-08-29"},
+    {"nip": "400192", "jenis": "Libur", "tanggal": "2025-08-25"},
+    {"nip": "400192", "jenis": "Libur", "tanggal": "2025-08-04"},
+    {"nip": "400196", "jenis": "Libur", "tanggal": "2025-08-01"},
+    {"nip": "400190", "jenis": "Libur", "tanggal": "2025-08-23"},
+    {"nip": "400190", "jenis": "Libur", "tanggal": "2025-08-24"},
+    {"nip": "400190", "jenis": "Libur", "tanggal": "2025-08-25"},
+]
     
     daftar_tanggal_merah = [
         "2025-08-17"  # Contoh: Hari Kemerdekaan
@@ -1167,7 +1027,7 @@ if __name__ == '__main__':
         target_year=target_year_num,
         target_month=target_month_num,
         public_holidays=daftar_tanggal_merah, # <-- Kirim daftar sebagai argumen
-        num_runs=5)
+        num_runs=1)
     
     
     print("\n" + "="*80)
