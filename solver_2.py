@@ -143,9 +143,13 @@ def apply_night_shift_rules(model, shifts, employees_data, days, female_employee
                 model.Add(shifts[e_idx, d + 3, s_libur_idx] + shifts[e_idx, d + 3, s_cuti_idx] == 1).OnlyEnforceIf(trigger)
 
 def apply_additional_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map, male_employees, male_bandung_indices, night_shift_indices, public_holidays, target_year, target_month):
-    """Menerapkan semua aturan tambahan yang kompleks."""
+    """
+    Menerapkan semua aturan penjadwalan tambahan yang kompleks.
+
+    Kode ini telah disatukan ke dalam struktur loop yang lebih efisien.
+    """
     
-    # --- Definisi variabel yang relevan (didefinisikan sekali di awal) ---
+    # --- Definisi Indeks Shift dan Grup (dilakukan sekali di awal) ---
     s_socm_idx = shift_map.get('SOCM')
     s_libur_idx = shift_map.get('Libur')
     s_cuti_idx = shift_map.get('Cuti')
@@ -157,60 +161,68 @@ def apply_additional_constraints(model, shifts, employees_data, days, day_types,
     s_p11_idx = shift_map.get('P11')
     s_m_idx = shift_map.get('M')
     
+    # Kelompokkan indeks shift untuk memudahkan penggunaan
     work_shift_indices = [idx for name, idx in shift_map.items() if name not in ['Libur']]
     night_indices = [idx for name, idx in shift_map.items() if name in ['M', 'SOCM']]
     forbidden_p_indices = [shift_map.get(r) for r in ['P6', 'P7', 'P8', 'P9'] if r in shift_map]
     
-    # Dapatkan daftar indeks karyawan spesifik dan grup
+    # Dapatkan indeks karyawan dan grup spesifik
     e_b33_idx = employee_map.get('B33')
     e_b31_idx = employee_map.get('B31')
     e_b32_idx = employee_map.get('B32')
     jakarta_indices = [employee_map.get(e[0]) for e in employees_data if e[1] in ['MJ', 'CJ']]
     
-    # Dapatkan daftar hari H-1 tanggal merah
+    # Hitung hari H-1 sebelum tanggal merah di bulan target
     month_prefix = f"{target_year}-{target_month:02d}-"
     holidays_in_month = {h for h in public_holidays if h.startswith(month_prefix)}
     days_before_holiday = {int(h.split('-')[2]) - 2 for h in holidays_in_month if int(h.split('-')[2]) > 1}
 
     # =================================================================
-    # ATURAN YANG BERLAKU PER INDIVIDU
+    # ATURAN YANG BERLAKU PER INDIVIDU (DALAM SATU LOOP UTAMA)
     # =================================================================
-
-
-    
     for e_idx, (e_name, group) in enumerate(employees_data):
         
-        # Aturan 1: Maksimal 6 hari kerja berturut-turut
-        if s_libur_idx is not None:
-            for d in range(len(days) - 6):
-                non_off_days_in_window = [shifts[e_idx, d + i, s_libur_idx].Not() for i in range(7)]
-                model.Add(sum(non_off_days_in_window) <= 6)
+        # Aturan 1: Tidak boleh bekerja lebih dari 7 hari berturut-turut
+        # Diterapkan dengan memastikan ada minimal 1 hari libur/cuti dalam setiap jendela 8 hari.
+        if s_libur_idx is not None and s_cuti_idx is not None:
+            for d in range(len(days) - 7):
+                off_days_in_window = []
+                for i in range(8):
+                    is_libur = shifts[e_idx, d + i, s_libur_idx]
+                    is_cuti = shifts[e_idx, d + i, s_cuti_idx]
+                    
+                    is_off_day = model.NewBoolVar(f'e{e_idx}_d{d+i}_is_off')
+                    model.AddBoolOr([is_libur, is_cuti]).OnlyEnforceIf(is_off_day)
+                    model.AddImplication(is_off_day.Not(), is_libur.Not())
+                    model.AddImplication(is_off_day.Not(), is_cuti.Not())
+                    off_days_in_window.append(is_off_day)
+                
+                model.Add(sum(off_days_in_window) > 0)
 
         # Aturan 2: Melarang pola jadwal SOCM -> Libur -> P (untuk laki-laki)
         if e_name in male_employees and s_socm_idx is not None and forbidden_p_indices:
             for d in range(len(days) - 2):
                 trigger = [shifts[e_idx, d, s_socm_idx], shifts[e_idx, d + 1, s_libur_idx]]
+                # Jika trigger terpenuhi, maka jumlah shift P yang dilarang pada hari ke-3 harus 0
                 model.Add(sum(shifts[e_idx, d + 2, s_idx] for s_idx in forbidden_p_indices if s_idx is not None) == 0).OnlyEnforceIf(trigger)
         
         # Aturan 3: Batasan Kerja Akhir Pekan per Grup
-        weekend_work_days = sum(shifts[e_idx, d, s_idx] for d in days if day_types[d] in ['Sabtu', 'Minggu'] for s_idx in work_shift_indices)
-        if group == 'FB': model.AddLinearConstraint(weekend_work_days, 3, 5)
-        if group == 'MB': model.AddLinearConstraint(weekend_work_days, 4, 6)
+        weekend_work_days = sum(shifts[e_idx, d, s_idx] for d in range(len(days)) if day_types[d] in ['Sabtu', 'Minggu'] for s_idx in work_shift_indices)
+        if group == 'FB':
+            model.AddLinearConstraint(weekend_work_days, 3, 5)
+        if group == 'MB':
+            model.AddLinearConstraint(weekend_work_days, 4, 6)
 
-        # Aturan 4: Shift Malam di H-1 Tanggal Merah Dihitung Kerja
-        for d_before in days_before_holiday:
-            if d_before in days:
-                d_holiday = d_before + 1
-                works_night_before_holiday = model.NewBoolVar(f'night_before_holiday_e{e_idx}_d{d_before}')
-                model.Add(sum(shifts[e_idx, d_before, s_idx] for s_idx in night_indices) == 1).OnlyEnforceIf(works_night_before_holiday)
-                model.Add(sum(shifts[e_idx, d_before, s_idx] for s_idx in night_indices) == 0).OnlyEnforceIf(works_night_before_holiday.Not())
-                model.Add(shifts[e_idx, d_holiday, s_libur_idx] == 0).OnlyEnforceIf(works_night_before_holiday)
+        
 
-        # Aturan 5: Larangan Shift untuk Karyawan Spesifik
+        # Aturan 5: Larangan Shift Spesifik untuk Karyawan Tertentu
         if e_idx == e_b33_idx and s_p9_idx is not None:
-            for d in days: model.Add(shifts[e_idx, d, s_p9_idx] == 0)
+            for d in range(len(days)):
+                model.Add(shifts[e_idx, d, s_p9_idx] == 0)
+        
         if e_idx in [e_b31_idx, e_b32_idx] and s_p10_idx is not None:
-            for d in days: model.Add(shifts[e_idx, d, s_p10_idx] == 0)
+            for d in range(len(days)):
+                model.Add(shifts[e_idx, d, s_p10_idx] == 0)
 
     # =================================================================
     # ATURAN YANG BERLAKU SECARA GLOBAL PER HARI
@@ -218,15 +230,16 @@ def apply_additional_constraints(model, shifts, employees_data, days, day_types,
     
     # Aturan 6: Minimal 2 Laki-laki Bandung shift malam setiap hari
     if male_bandung_indices and night_shift_indices:
-        for d in days:
+        for d in range(len(days)):
             model.Add(sum(shifts[e_idx, d, s_idx] for e_idx in male_bandung_indices for s_idx in night_shift_indices) >= 2)
 
     # Aturan 7: Role P9 di akhir pekan hanya untuk Laki-laki Bandung
     if s_p9_idx is not None and male_bandung_indices:
         non_mb_indices = [i for i in range(len(employees_data)) if i not in male_bandung_indices]
-        for d in days:
+        for d in range(len(days)):
             if day_types[d] in ['Sabtu', 'Minggu']:
-                for e_idx in non_mb_indices: model.Add(shifts[e_idx, d, s_p9_idx] == 0)
+                for e_idx in non_mb_indices:
+                    model.Add(shifts[e_idx, d, s_p9_idx] == 0)
     
      
 def apply_jakarta_monthly_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map, roles, max_work_days, min_work_days, num_weekends, min_libur, forbidden_shifts_by_group):
@@ -721,8 +734,41 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
                     #    Bobot 15 berarti ini adalah preferensi yang cukup kuat.
                     total_score_vars.append(rule_met_on_day_d * 15)
 
-    
- 
+    if s_libur_idx is not None:
+        # a. Identifikasi semua blok akhir pekan (pasangan Sabtu & Minggu)
+        weekend_blocks = []
+        for d in range(num_days - 1):
+            if day_types[d] == 'Sabtu' and day_types[d + 1] == 'Minggu':
+                weekend_blocks.append([d, d + 1])
+        
+        # b. Untuk setiap karyawan dan setiap pasang akhir pekan yang berurutan...
+        for e_idx in range(len(employees_data)):
+            for w in range(len(weekend_blocks) - 1):
+                weekend_A = weekend_blocks[w]
+                weekend_B = weekend_blocks[w+1]
+
+                # Variabel A: Apakah karyawan bekerja di akhir pekan A?
+                # (Bekerja = setidaknya satu hari tidak libur)
+                works_weekend_A = model.NewBoolVar(f'e{e_idx}_works_wkndA_{w}')
+                works_sat_A = shifts[e_idx, weekend_A[0], s_libur_idx].Not()
+                works_sun_A = shifts[e_idx, weekend_A[1], s_libur_idx].Not()
+                model.AddBoolOr([works_sat_A, works_sun_A]).OnlyEnforceIf(works_weekend_A)
+
+                # Variabel B: Apakah karyawan dapat libur di akhir pekan B?
+                # (Dapat libur = setidaknya satu hari libur)
+                off_on_weekend_B = model.NewBoolVar(f'e{e_idx}_off_wkndB_{w}')
+                off_sat_B = shifts[e_idx, weekend_B[0], s_libur_idx]
+                off_sun_B = shifts[e_idx, weekend_B[1], s_libur_idx]
+                model.AddBoolOr([off_sat_B, off_sun_B]).OnlyEnforceIf(off_on_weekend_B)
+
+                # c. Beri bonus jika aturan terpenuhi.
+                # Aturan: JIKA 'works_weekend_A' MAKA 'off_on_weekend_B'.
+                # Ini setara dengan: (NOT 'works_weekend_A') OR ('off_on_weekend_B')
+                rule_satisfied = model.NewBoolVar(f'e{e_idx}_weekend_break_rule_{w}')
+                model.AddBoolOr([works_weekend_A.Not(), off_on_weekend_B]).OnlyEnforceIf(rule_satisfied)
+                
+                # Tambahkan skor bonus. Bobot 20 menandakan ini preferensi yang kuat.
+                total_score_vars.append(rule_satisfied * 20)
     
    
     return sum(total_score_vars)
@@ -773,10 +819,11 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     month_prefix = f"{target_year}-{target_month:02d}-"
     holidays_in_month = [h for h in public_holidays if h.startswith(month_prefix)]
     num_weekends = len([d for d, type in day_types.items() if type in ['Sabtu', 'Minggu']])
-    
+    print(len(holidays_in_month), public_holidays, num_weekends)
     max_work_days = num_days - num_weekends+len(holidays_in_month)  
     min_work_days = num_days - num_weekends  
     min_libur = num_weekends-len(holidays_in_month) 
+    print(f"Max work days: {max_work_days}, Min work days: {min_work_days}, Min libur: {min_libur}, Max libur: {num_weekends}")
     
     
 
@@ -794,7 +841,7 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
 
     demand = { 'P6': {'Weekday': 2, 'Sabtu': 2, 'Minggu': 2}, 'P7': {'Weekday': 3, 'Sabtu': 2, 'Minggu': 1}, 'P8': {'Weekday': (3, 5), 'Sabtu': 2, 'Minggu': 1}, 'P9': {'Weekday': (2, 5), 'Sabtu': 2, 'Minggu': 1}, 'P10': {'Weekday': (2, 4), 'Sabtu': 0, 'Minggu': 0}, 'P11': {'Weekday': 1, 'Sabtu': 1, 'Minggu': 1}, 'S12': {'Weekday': 5, 'Sabtu': 3, 'Minggu': 3}, 'M': {'Weekday': 2, 'Sabtu': 2, 'Minggu': 2}, 'SOCM': {'Weekday': 1, 'Sabtu': 1, 'Minggu': 1}, 'SOC2': {'Weekday': 1, 'Sabtu': 1, 'Minggu': 1}, 'SOC6': {'Weekday': 1, 'Sabtu': 1, 'Minggu': 1} }
     forbidden_shifts_by_group = { 'FB': ['P10', 'P11', 'S12', 'SOC2', 'SOCM'], 'MJ': ['P6', 'P10', 'S12', 'SOC2', 'SOC6', 'SOCM'], 'CJ': ['P6', 'P9', 'S12', 'SOC2', 'SOC6', 'SOCM'] }
-
+    
     pre_assignments = {}
     for req in pre_assignment_requests:
         real_nip, jenis, tanggal_str = str(req.get('nip')), req.get('jenis'), req.get('tanggal')
@@ -828,6 +875,7 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
             if (e_idx, d) not in requested_cuti_days:
                 model.Add(shifts[e_idx, d, s_cuti_idx] == 0)
 
+    
     # Panggil semua fungsi aturan
     apply_pre_assignments(model, shifts, pre_assignments, shift_map)
     apply_core_constraints(model, shifts, employees, days, demand, day_types, shift_map)
@@ -840,7 +888,7 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     # =================================================================
     objective_function = apply_soft_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map)
     model.Maximize(objective_function)
-
+    
     # =================================================================
     # --- 5. JALANKAN SOLVER ---
     # =================================================================
@@ -988,8 +1036,9 @@ if __name__ == '__main__':
     {"nip": "400216", "jenis": "Libur", "tanggal": "2025-08-31"},
     {"nip": "400091", "jenis": "Libur", "tanggal": "2025-08-06"},
     {"nip": "400091", "jenis": "Libur", "tanggal": "2025-08-28"},
-    {"nip": "400212", "jenis": "Libur", "tanggal": "2025-08-02"},
-    {"nip": "400212", "jenis": "Libur", "tanggal": "2025-08-03"},
+    {"nip": "400212", "jenis": "Cuti", "tanggal": "2025-08-01"},
+    {"nip": "400212", "jenis": "Cuti", "tanggal": "2025-08-02"},
+    {"nip": "400212", "jenis": "Cuti", "tanggal": "2025-08-03"},
     {"nip": "400212", "jenis": "Libur", "tanggal": "2025-08-04"},
     {"nip": "400193", "jenis": "Libur", "tanggal": "2025-08-11"},
     {"nip": "400193", "jenis": "Libur", "tanggal": "2025-08-18"},
@@ -1019,7 +1068,9 @@ if __name__ == '__main__':
 ]
     
     daftar_tanggal_merah = [
-        "2025-08-17"  # Contoh: Hari Kemerdekaan
+          # Contoh: Hari Kemerdekaan
+        "2025-08-18",
+        "2025-08-17"
   ]
     
     list_of_valid_schedules = run_simulation_for_api(
