@@ -162,7 +162,7 @@ def apply_additional_constraints(model, shifts, employees_data, days, day_types,
     s_m_idx = shift_map.get('M')
     
     # Kelompokkan indeks shift untuk memudahkan penggunaan
-    work_shift_indices = [idx for name, idx in shift_map.items() if name not in ['Libur']]
+    work_shift_indices = [idx for name, idx in shift_map.items() if name not in ['Libur','Cuti']]
     night_indices = [idx for name, idx in shift_map.items() if name in ['M', 'SOCM']]
     forbidden_p_indices = [shift_map.get(r) for r in ['P6', 'P7', 'P8', 'P9'] if r in shift_map]
     
@@ -566,14 +566,10 @@ def apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee
             model.Add(jakarta_p8_count == 1)
         
             
-   
-
-
-
 def apply_soft_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map):
     """
-    Menerapkan semua soft constraints dan mengembalikan objective function.
-    Versi ini telah diperbaiki dan distruktur ulang untuk kebenaran dan kejelasan.
+    Menerapkan semua soft constraints (preferensi) dan mengembalikan fungsi objektif untuk dimaksimalkan.
+    Versi ini adalah versi final yang telah diperbaiki dan distruktur ulang.
     """
     
     num_days = len(days)
@@ -582,57 +578,16 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
     # --- Definisi Awal yang Dibutuhkan ---
     s_libur_idx = shift_map.get('Libur')
     s_cuti_idx = shift_map.get('Cuti')
+    s_p8_idx = shift_map.get('P8')
     
-    # ✅ PERBAIKAN KRITIS: 'Hari kerja' didefinisikan sebagai BUKAN Libur DAN BUKAN Cuti.
-    # Logika 'or' sebelumnya salah dan menyebabkan error.
+    # Definisi 'hari kerja' yang benar: semua shift KECUALI Libur dan Cuti.
     work_shift_indices = [idx for name, idx in shift_map.items() if name not in ['Libur', 'Cuti']]
 
     # =================================================================
-    # BAGIAN 1: PREFERENSI YANG BERLAKU PER-KARYAWAN SECARA INDIVIDU
+    # BAGIAN 1: ATURAN PREFERENSI PER-KARYAWAN (TARGET INDIVIDU)
     # =================================================================
-    for e_idx, (e_name, group) in enumerate(employees_data):
-
-        # Aturan #1 (BARU): Penalti untuk kerja 6 atau 7 hari berturut-turut
-        # ----------------------------------------------------------------
-        penalty_6_days = -30  # Penalti yang cukup kuat
-        penalty_7_days = -60  # Penalti yang sangat kuat
-
-        if s_libur_idx is not None and s_cuti_idx is not None:
-            # Penalti untuk 6 hari kerja beruntun
-            for d in range(num_days - 5):
-                work_days_in_window = [
-                    model.NewBoolVar(f'e{e_idx}_d{d+i}_is_work') for i in range(6)
-                ]
-                for i in range(6):
-                    model.AddBoolAnd([
-                        shifts[e_idx, d + i, s_libur_idx].Not(),
-                        shifts[e_idx, d + i, s_cuti_idx].Not()
-                    ]).OnlyEnforceIf(work_days_in_window[i])
-                
-                works_6_straight = model.NewBoolVar(f'e{e_idx}_works_6_straight_d{d}')
-                model.AddBoolAnd(work_days_in_window).OnlyEnforceIf(works_6_straight)
-                total_score_vars.append(works_6_straight * penalty_6_days)
-
-            # Penalti untuk 7 hari kerja beruntun
-            for d in range(num_days - 6):
-                work_days_in_window = [
-                    model.NewBoolVar(f'e{e_idx}_d{d+i}_is_work7') for i in range(7)
-                ]
-                for i in range(7):
-                    model.AddBoolAnd([
-                        shifts[e_idx, d + i, s_libur_idx].Not(),
-                        shifts[e_idx, d + i, s_cuti_idx].Not()
-                    ]).OnlyEnforceIf(work_days_in_window[i])
-
-                works_7_straight = model.NewBoolVar(f'e{e_idx}_works_7_straight_d{d}')
-                model.AddBoolAnd(work_days_in_window).OnlyEnforceIf(works_7_straight)
-                total_score_vars.append(works_7_straight * penalty_7_days)
-
-    # =================================================================
-    # BAGIAN 1: PREFERENSI YANG BERLAKU PER-KARYAWAN SECARA INDIVIDU
-    # =================================================================
-
-    # Aturan #1: Preferensi jumlah shift SPESIFIK per bulan (misal, P6 antara 2-6 kali)
+    
+    # Aturan #1: Preferensi jumlah shift SPESIFIK per bulan
     preferences_with_range = [
         ('P6', 'FB', 2, 6, 10), ('P7', 'FB', 2, 6, 10), ('P8', 'FB', 2, 9, 10), 
         ('P9', 'FB', 3, 3, 10), ('SOC6', 'FB', 1, 3, 10), ('P6', 'MB', 0, 1, 10), 
@@ -647,6 +602,7 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
     for shift_name, group, min_val, max_val, weight in preferences_with_range:
         s_idx = shift_map.get(shift_name)
         if s_idx is None: continue
+        # Note: 'e' di sini adalah tuple ('B1', 'FB'), jadi e[0] adalah 'B1'
         group_indices = [employee_map[e[0]] for e in employees_data if e[1] == group]
         for e_idx in group_indices:
             total = sum(shifts[e_idx, d, s_idx] for d in range(num_days))
@@ -655,29 +611,51 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
             model.Add(total <= max_val).OnlyEnforceIf(in_range)
             total_score_vars.append(in_range * weight)
 
-    # Loop per-karyawan untuk aturan individu lainnya
+    # Loop utama untuk aturan individu lainnya
     for e_idx, (e_name, group) in enumerate(employees_data):
-        # Aturan #2: Preferensi jumlah TOTAL kerja di akhir pekan
-        weekend_work_days = sum(shifts[e_idx, d, s_idx] 
-                                for d in range(num_days) 
-                                if day_types[d] in ['Sabtu', 'Minggu'] 
-                                for s_idx in work_shift_indices)
         
-        weekend_preference_weight = 15
+        # Aturan #2: Penalti untuk kerja 6 atau 7 hari berturut-turut
+        penalty_6_days = -30
+        penalty_7_days = -60
+        if s_libur_idx is not None and s_cuti_idx is not None:
+            # Penalti untuk 6 hari beruntun
+            for d in range(num_days - 5):
+                works_6_straight = model.NewBoolVar(f'e{e_idx}_works_6_d{d}')
+                work_days = []
+                for i in range(6):
+                    is_work_day = model.NewBoolVar(f'e{e_idx}_is_work_d{d+i}')
+                    model.AddBoolAnd([shifts[e_idx, d + i, s_libur_idx].Not(), shifts[e_idx, d + i, s_cuti_idx].Not()]).OnlyEnforceIf(is_work_day)
+                    work_days.append(is_work_day)
+                model.AddBoolAnd(work_days).OnlyEnforceIf(works_6_straight)
+                total_score_vars.append(works_6_straight * penalty_6_days)
+            # Penalti untuk 7 hari beruntun
+            for d in range(num_days - 6):
+                works_7_straight = model.NewBoolVar(f'e{e_idx}_works_7_d{d}')
+                work_days = []
+                for i in range(7):
+                    is_work_day = model.NewBoolVar(f'e{e_idx}_is_work7_d{d+i}')
+                    model.AddBoolAnd([shifts[e_idx, d + i, s_libur_idx].Not(), shifts[e_idx, d + i, s_cuti_idx].Not()]).OnlyEnforceIf(is_work_day)
+                    work_days.append(is_work_day)
+                model.AddBoolAnd(work_days).OnlyEnforceIf(works_7_straight)
+                total_score_vars.append(works_7_straight * penalty_7_days)
+
+        # Aturan #3: Preferensi jumlah TOTAL kerja di akhir pekan (target individu)
+        weekend_work_days = sum(shifts[e_idx, d, s_idx] for d in range(num_days) if day_types[d] in ['Sabtu', 'Minggu'] for s_idx in work_shift_indices)
+        weekend_pref_weight = 15
         if group == 'FB':
             min_val, max_val = 3, 4
             is_in_range = model.NewBoolVar(f'weekend_in_range_e{e_idx}_fb')
             model.Add(weekend_work_days >= min_val).OnlyEnforceIf(is_in_range)
             model.Add(weekend_work_days <= max_val).OnlyEnforceIf(is_in_range)
-            total_score_vars.append(is_in_range * weekend_preference_weight)
+            total_score_vars.append(is_in_range * weekend_pref_weight)
         if group == 'MB':
             min_val, max_val = 4, 5
             is_in_range = model.NewBoolVar(f'weekend_in_range_e{e_idx}_mb')
             model.Add(weekend_work_days >= min_val).OnlyEnforceIf(is_in_range)
             model.Add(weekend_work_days <= max_val).OnlyEnforceIf(is_in_range)
-            total_score_vars.append(is_in_range * weekend_preference_weight)
+            total_score_vars.append(is_in_range * weekend_pref_weight)
 
-        # Aturan #3: Bonus untuk setiap hari Libur di Akhir Pekan
+        # Aturan #4: Bonus untuk setiap hari Libur di Akhir Pekan
         if s_libur_idx is not None:
             for d in range(num_days):
                 if day_types[d] in ['Sabtu', 'Minggu']:
@@ -688,38 +666,65 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
     # BAGIAN 2: ATURAN PENYEIMBANGAN BEBAN KERJA ANTAR KARYAWAN (FAIRNESS)
     # =================================================================
 
-    # Aturan #4: Penyeimbangan jumlah kerja di akhir pekan per kelompok
-    balancing_weight = -15
-    groups_to_balance = ['FB', 'MB', 'MJ', 'CJ']
-    for group_code in groups_to_balance:
+    # Aturan #5: Penyeimbangan jumlah kerja di akhir pekan untuk setiap kelompok
+    fairness_penalty = -20
+    groups_to_balance = {'FB': 'fb', 'MB': 'mb', 'MJ': 'mj', 'CJ': 'cj'}
+    for group_code, group_label in groups_to_balance.items():
         group_indices = [employee_map[e[0]] for e in employees_data if e[1] == group_code]
-        if not group_indices: continue
-        
-        weekend_totals = [sum(shifts[e_idx, d, s_idx] for d in range(num_days) if day_types[d] in ['Sabtu', 'Minggu'] for s_idx in work_shift_indices) for e_idx in group_indices]
-        min_val = model.NewIntVar(0, num_days, f'min_wknd_work_{group_code}')
-        max_val = model.NewIntVar(0, num_days, f'max_wknd_work_{group_code}')
-        model.AddMinEquality(min_val, weekend_totals)
-        model.AddMaxEquality(max_val, weekend_totals)
-        work_range = model.NewIntVar(0, num_days, f'range_wknd_work_{group_code}')
-        model.Add(work_range == max_val - min_val)
-        total_score_vars.append(work_range * balancing_weight)
+        if len(group_indices) > 1:
+            weekend_totals = [sum(shifts[e_idx, d, s_idx] for d in range(num_days) if day_types[d] in ['Sabtu', 'Minggu'] for s_idx in work_shift_indices) for e_idx in group_indices]
+            min_val = model.NewIntVar(0, num_days, f'min_wknd_work_{group_label}')
+            max_val = model.NewIntVar(0, num_days, f'max_wknd_work_{group_label}')
+            model.AddMinEquality(min_val, weekend_totals)
+            model.AddMaxEquality(max_val, weekend_totals)
+            work_range = model.NewIntVar(0, num_days, f'range_wknd_work_{group_label}')
+            model.Add(work_range == max_val - min_val)
+            total_score_vars.append(work_range * fairness_penalty)
+            
+    # Aturan #6: Penyeimbangan jumlah shift P6+SOC6 untuk grup Cewek Bandung (FB)
+    s_p6_idx = shift_map.get('P6')
+    s_soc6_idx = shift_map.get('SOC6')
+    if s_p6_idx is not None and s_soc6_idx is not None:
+        fairness_p6_soc6_penalty = -5
+        bandung_fb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'FB']
+        if len(bandung_fb_indices) > 1:
+            combined_totals = []
+            for e_idx in bandung_fb_indices:
+                total_p6 = sum(shifts[e_idx, d, s_p6_idx] for d in range(num_days))
+                total_soc6 = sum(shifts[e_idx, d, s_soc6_idx] for d in range(num_days))
+                combined_totals.append(total_p6 + total_soc6)
+            min_shifts, max_shifts = model.NewIntVar(0, num_days, 'min_p6_soc6_fb'), model.NewIntVar(0, num_days, 'max_p6_soc6_fb')
+            model.AddMinEquality(min_shifts, combined_totals)
+            model.AddMaxEquality(max_shifts, combined_totals)
+            shift_range = model.NewIntVar(0, num_days, 'range_p6_soc6_fb')
+            model.Add(shift_range == max_shifts - min_shifts)
+            total_score_vars.append(shift_range * fairness_p6_soc6_penalty)
 
-    # Aturan #5: Penyeimbangan shift malam ('M' + 'SOCM') untuk 'MB'
-    # ... (dan aturan penyeimbangan shift lainnya yang sudah ada) ...
-
+    # Aturan #7: Penyeimbangan jumlah total shift SOC untuk grup Cowok Bandung (MB)
+    all_soc_indices = [idx for name, idx in shift_map.items() if 'SOC' in name]
+    if all_soc_indices:
+        fairness_soc_penalty = -10
+        bandung_mb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'MB']
+        if len(bandung_mb_indices) > 1:
+            soc_totals = [sum(shifts[e_idx, d, s_idx] for d in range(num_days) for s_idx in all_soc_indices) for e_idx in bandung_mb_indices]
+            min_shifts = model.NewIntVar(0, num_days, 'min_all_soc_mb')
+            max_shifts = model.NewIntVar(0, num_days, 'max_all_soc_mb')
+            model.AddMinEquality(min_shifts, soc_totals)
+            model.AddMaxEquality(max_shifts, soc_totals)
+            shift_range = model.NewIntVar(0, num_days, 'range_all_soc_mb')
+            model.Add(shift_range == max_shifts - min_shifts)
+            total_score_vars.append(shift_range * fairness_soc_penalty)
 
     # =================================================================
     # BAGIAN 3: PREFERENSI POLA JADWAL TERTENTU
     # =================================================================
 
-    # Aturan #6: Bonus jika di akhir pekan ada 1 P8 dan 2 Libur untuk grup Jakarta
-    s_p8_idx = shift_map.get('P8')
+    # Aturan #8: Bonus jika pola akhir pekan tim Jakarta terpenuhi (1 P8, 2 Libur)
     if s_p8_idx is not None and s_libur_idx is not None:
         jakarta_indices = [employee_map[e[0]] for e in employees_data if e[1] in ['MJ', 'CJ']]
         if len(jakarta_indices) >= 3:
             for d in range(num_days):
                 if day_types[d] in ['Sabtu', 'Minggu']:
-                    # ✅ PERBAIKAN: Definisikan kondisi secara penuh untuk logika yang benar
                     cond1 = model.NewBoolVar(f'cond1_p8_d{d}')
                     model.Add(sum(shifts[e_idx, d, s_p8_idx] for e_idx in jakarta_indices) == 1).OnlyEnforceIf(cond1)
                     model.Add(sum(shifts[e_idx, d, s_p8_idx] for e_idx in jakarta_indices) != 1).OnlyEnforceIf(cond1.Not())
@@ -730,11 +735,9 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
 
                     rule_met = model.NewBoolVar(f'jakarta_rule_met_d{d}')
                     model.AddBoolAnd([cond1, cond2]).OnlyEnforceIf(rule_met)
-                    # Implikasi sebaliknya tidak wajib karena solver akan otomatis memaksimalkan rule_met
-                    
                     total_score_vars.append(rule_met * 15)
 
-    # Aturan #7: Bonus jika ada selang libur antar akhir pekan
+    # Aturan #9: Bonus jika ada selang libur antar akhir pekan kerja
     if s_libur_idx is not None:
         weekend_blocks = []
         for d in range(num_days - 1):
@@ -759,6 +762,8 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
     # FINAL: KEMBALIKAN FUNGSI OBJEKTIF UNTUK DIMAKSIMALKAN
     # =================================================================
     return sum(total_score_vars)
+
+
 
 import calendar
 import collections
