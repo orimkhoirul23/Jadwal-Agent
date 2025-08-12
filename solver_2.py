@@ -30,6 +30,9 @@ def apply_core_constraints(model, shifts, employees, days, demand, day_types, sh
                     model.AddLinearConstraint(sum(shifts[e_idx, d, s_idx] for e_idx in range(num_employees)), min_req, max_req)
                 elif required_count > 0:
                     model.Add(sum(shifts[e_idx, d, s_idx] for e_idx in range(num_employees)) == required_count)
+                else:
+                    model.Add(sum(shifts[e_idx, d, s_idx] for e_idx in range(num_employees)) == 0)
+
 
 
 def apply_employee_monthly_rules(model, shifts, employees_data, days, roles, non_work_statuses, employee_map, shift_map, max_work_days, forbidden_shifts_by_group, num_weekends,min_work_days,min_libur,code_to_nip_map):
@@ -688,15 +691,11 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
         fairness_p6_soc6_penalty = -5
         bandung_fb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'FB']
         if len(bandung_fb_indices) > 1:
-            combined_totals = []
-            for e_idx in bandung_fb_indices:
-                total_p6 = sum(shifts[e_idx, d, s_p6_idx] for d in range(num_days))
-                total_soc6 = sum(shifts[e_idx, d, s_soc6_idx] for d in range(num_days))
-                combined_totals.append(total_p6 + total_soc6)
-            min_shifts, max_shifts = model.NewIntVar(0, num_days, 'min_p6_soc6_fb'), model.NewIntVar(0, num_days, 'max_p6_soc6_fb')
+            combined_totals = [sum(shifts[e_idx, d, s_p6_idx] + shifts[e_idx, d, s_soc6_idx] for d in range(num_days)) for e_idx in bandung_fb_indices]
+            min_shifts, max_shifts = model.NewIntVar(0, num_days, 'min_p6soc6_fb'), model.NewIntVar(0, num_days, 'max_p6soc6_fb')
             model.AddMinEquality(min_shifts, combined_totals)
             model.AddMaxEquality(max_shifts, combined_totals)
-            shift_range = model.NewIntVar(0, num_days, 'range_p6_soc6_fb')
+            shift_range = model.NewIntVar(0, num_days, 'range_p6soc6_fb')
             model.Add(shift_range == max_shifts - min_shifts)
             total_score_vars.append(shift_range * fairness_p6_soc6_penalty)
 
@@ -707,19 +706,33 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
         bandung_mb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'MB']
         if len(bandung_mb_indices) > 1:
             soc_totals = [sum(shifts[e_idx, d, s_idx] for d in range(num_days) for s_idx in all_soc_indices) for e_idx in bandung_mb_indices]
-            min_shifts = model.NewIntVar(0, num_days, 'min_all_soc_mb')
-            max_shifts = model.NewIntVar(0, num_days, 'max_all_soc_mb')
+            min_shifts, max_shifts = model.NewIntVar(0, num_days, 'min_soc_mb'), model.NewIntVar(0, num_days, 'max_soc_mb')
             model.AddMinEquality(min_shifts, soc_totals)
             model.AddMaxEquality(max_shifts, soc_totals)
-            shift_range = model.NewIntVar(0, num_days, 'range_all_soc_mb')
+            shift_range = model.NewIntVar(0, num_days, 'range_soc_mb')
             model.Add(shift_range == max_shifts - min_shifts)
             total_score_vars.append(shift_range * fairness_soc_penalty)
+
+    # Aturan #8: Penyeimbangan jumlah shift malam (M+SOCM) untuk grup Cowok Bandung (MB)
+    s_m_idx = shift_map.get('M')
+    s_socm_idx = shift_map.get('SOCM')
+    if s_m_idx is not None and s_socm_idx is not None:
+        fairness_night_penalty = -10
+        bandung_mb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'MB']
+        if len(bandung_mb_indices) > 1:
+            night_totals = [sum(shifts[e_idx, d, s_m_idx] + shifts[e_idx, d, s_socm_idx] for d in range(num_days)) for e_idx in bandung_mb_indices]
+            min_shifts, max_shifts = model.NewIntVar(0, num_days, 'min_night_mb'), model.NewIntVar(0, num_days, 'max_night_mb')
+            model.AddMinEquality(min_shifts, night_totals)
+            model.AddMaxEquality(max_shifts, night_totals)
+            shift_range = model.NewIntVar(0, num_days, 'range_night_mb')
+            model.Add(shift_range == max_shifts - min_shifts)
+            total_score_vars.append(shift_range * fairness_night_penalty)
 
     # =================================================================
     # BAGIAN 3: PREFERENSI POLA JADWAL TERTENTU
     # =================================================================
 
-    # Aturan #8: Bonus jika pola akhir pekan tim Jakarta terpenuhi (1 P8, 2 Libur)
+    # Aturan #9: Bonus jika pola akhir pekan tim Jakarta terpenuhi (1 P8, 2 Libur)
     if s_p8_idx is not None and s_libur_idx is not None:
         jakarta_indices = [employee_map[e[0]] for e in employees_data if e[1] in ['MJ', 'CJ']]
         if len(jakarta_indices) >= 3:
@@ -737,7 +750,7 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
                     model.AddBoolAnd([cond1, cond2]).OnlyEnforceIf(rule_met)
                     total_score_vars.append(rule_met * 15)
 
-    # Aturan #9: Bonus jika ada selang libur antar akhir pekan kerja
+    # Aturan #10: Bonus jika ada selang libur antar akhir pekan kerja
     if s_libur_idx is not None:
         weekend_blocks = []
         for d in range(num_days - 1):
