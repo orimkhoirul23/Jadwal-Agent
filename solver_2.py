@@ -1,3 +1,7 @@
+
+import faulthandler
+faulthandler.enable()
+
 import collections
 from ortools.sat.python import cp_model
 import random
@@ -771,6 +775,29 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
                 model.AddBoolOr([works_weekend_A.Not(), off_on_weekend_B]).OnlyEnforceIf(rule_satisfied)
                 total_score_vars.append(rule_satisfied * 20)
     
+    s_soc2_idx = shift_map.get('SOC2')
+    s_s12_idx = shift_map.get('S12')
+
+    if s_soc2_idx is not None and s_s12_idx is not None:
+        # Penalti untuk setiap 1 shift selisih antara SOC2 dan S12
+        internal_balance_penalty = -3 
+        
+        bandung_mb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'MB']
+        
+        # Terapkan untuk setiap karyawan di grup ini
+        for e_idx in bandung_mb_indices:
+            # Hitung total SOC2 dan S12 untuk karyawan ini
+            total_soc2 = sum(shifts[e_idx, d, s_soc2_idx] for d in range(num_days))
+            total_s12 = sum(shifts[e_idx, d, s_s12_idx] for d in range(num_days))
+
+            # Hitung selisih absolutnya: |total_soc2 - total_s12|
+            diff = model.NewIntVar(-num_days, num_days, f'diff_soc2_s12_e{e_idx}')
+            abs_diff = model.NewIntVar(0, num_days, f'abs_diff_soc2_s12_e{e_idx}')
+            model.Add(diff == total_soc2 - total_s12)
+            model.AddAbsEquality(abs_diff, diff)
+            
+            # Tambahkan penalti berdasarkan selisih absolut ini
+            total_score_vars.append(abs_diff * internal_balance_penalty)
     # =================================================================
     # FINAL: KEMBALIKAN FUNGSI OBJEKTIF UNTUK DIMAKSIMALKAN
     # =================================================================
