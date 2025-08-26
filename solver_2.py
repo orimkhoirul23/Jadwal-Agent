@@ -103,7 +103,7 @@ def apply_night_shift_rules(model, shifts, employees_data, days, female_employee
     s_libur_idx = shift_map['Libur']
     # [BARU] Dapatkan index untuk shift 'Cuti'. Menggunakan .get() lebih aman.
     s_cuti_idx = shift_map.get('Cuti', -1)
-
+    
     # 1. Definisikan semua variabel bantuan 'is_night' untuk setiap karyawan dan hari
     # Ini membuat model lebih bersih dan efisien
     is_night_vars = {}
@@ -721,7 +721,7 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
     s_m_idx = shift_map.get('M')
     s_socm_idx = shift_map.get('SOCM')
     if s_m_idx is not None and s_socm_idx is not None:
-        fairness_night_penalty = -10
+        fairness_night_penalty = -30
         bandung_mb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'MB']
         if len(bandung_mb_indices) > 1:
             night_totals = [sum(shifts[e_idx, d, s_m_idx] + shifts[e_idx, d, s_socm_idx] for d in range(num_days)) for e_idx in bandung_mb_indices]
@@ -775,29 +775,37 @@ def apply_soft_constraints(model, shifts, employees_data, days, day_types, emplo
                 model.AddBoolOr([works_weekend_A.Not(), off_on_weekend_B]).OnlyEnforceIf(rule_satisfied)
                 total_score_vars.append(rule_satisfied * 20)
     
-    s_soc2_idx = shift_map.get('SOC2')
+    # Aturan Penyeimbangan jumlah shift S12+SOC2 untuk grup Cowok Bandung (MB)
     s_s12_idx = shift_map.get('S12')
+    s_soc2_idx = shift_map.get('SOC2')
 
-    if s_soc2_idx is not None and s_s12_idx is not None:
-        # Penalti untuk setiap 1 shift selisih antara SOC2 dan S12
-        internal_balance_penalty = -3 
-        
-        bandung_mb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'MB']
-        
-        # Terapkan untuk setiap karyawan di grup ini
-        for e_idx in bandung_mb_indices:
-            # Hitung total SOC2 dan S12 untuk karyawan ini
-            total_soc2 = sum(shifts[e_idx, d, s_soc2_idx] for d in range(num_days))
-            total_s12 = sum(shifts[e_idx, d, s_s12_idx] for d in range(num_days))
+    if s_s12_idx is not None and s_soc2_idx is not None:
+       fairness_s12_soc2_penalty = -10  # Bobot penalti bisa disesuaikan
 
-            # Hitung selisih absolutnya: |total_soc2 - total_s12|
-            diff = model.NewIntVar(-num_days, num_days, f'diff_soc2_s12_e{e_idx}')
-            abs_diff = model.NewIntVar(0, num_days, f'abs_diff_soc2_s12_e{e_idx}')
-            model.Add(diff == total_soc2 - total_s12)
-            model.AddAbsEquality(abs_diff, diff)
-            
-            # Tambahkan penalti berdasarkan selisih absolut ini
-            total_score_vars.append(abs_diff * internal_balance_penalty)
+    # Dapatkan daftar indeks karyawan yang termasuk grup 'MB'
+       bandung_mb_indices = [employee_map[e[0]] for e in employees_data if e[1] == 'MB']
+    
+       if len(bandung_mb_indices) > 1:
+        # Buat list yang berisi total shift (S12 + SOC2) untuk setiap karyawan MB
+         combined_totals = [
+            sum(shifts[e_idx, d, s_s12_idx] + shifts[e_idx, d, s_soc2_idx] for d in range(num_days))
+            for e_idx in bandung_mb_indices
+        ] 
+
+        # Temukan nilai min, max, dan range dari total shift tersebut
+         min_shifts = model.NewIntVar(0, num_days, 'min_s12_soc2_mb')
+         max_shifts = model.NewIntVar(0, num_days, 'max_s12_soc2_mb')
+         model.AddMinEquality(min_shifts, combined_totals)
+         model.AddMaxEquality(max_shifts, combined_totals)
+        
+         shift_range = model.NewIntVar(0, num_days, 'range_s12_soc2_mb')
+         model.Add(shift_range == max_shifts - min_shifts)
+        
+        # Tambahkan penalti berdasarkan range ke fungsi objektif
+         total_score_vars.append(shift_range * fairness_s12_soc2_penalty)
+
+
+
     # =================================================================
     # FINAL: KEMBALIKAN FUNGSI OBJEKTIF UNTUK DIMAKSIMALKAN
     # =================================================================
