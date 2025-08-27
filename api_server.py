@@ -21,27 +21,31 @@ def start_schedule_generation():
     year = data.get('year')
     month = data.get('month')
     public_holidays = data.get('public_holidays')
+    
+    # [MODIFIKASI] Ambil data 'demand' dari request
+    demand_data = data.get('demand')
 
-    if requests_data is None or year is None or month is None:
-        return jsonify({"error": "Parameter 'requests', 'year', dan 'month' dibutuhkan"}), 400
+    # [MODIFIKASI] Tambahkan 'demand_data' ke dalam validasi parameter
+    if not all([requests_data, year, month, public_holidays, demand_data]):
+        return jsonify({"error": "Parameter 'requests', 'year', 'month', 'public_holidays', dan 'demand' dibutuhkan"}), 400
 
     # =================================================================
-    # --- [PERUBAHAN] Mengubah 'Cuti Lainnya' menjadi 'Cuti' ---
+    # --- Mengubah 'Cuti Lainnya' menjadi 'Cuti' ---
     # =================================================================
     for req in requests_data:
         if req.get('jenis') == 'Cuti Lainnya':
             req['jenis'] = 'Cuti'
     # =================================================================
 
-    # Kirim data yang sudah bersih ke Celery
-    task = run_solver_task.delay(requests_data, year, month, public_holidays)
+    # [MODIFIKASI] Kirim 'demand_data' sebagai argumen baru ke Celery task
+    task = run_solver_task.delay(requests_data, year, month, public_holidays, demand_data)
 
     return jsonify({
         "message": "Proses pembuatan jadwal dimulai.",
         "task_id": task.id,
         "status_check_url": url_for('check_task_status', task_id=task.id, _external=True)
     }), 202
-# [MODIFIKASI UTAMA DI FUNGSI INI]
+
 @app.route('/check-status/<task_id>', methods=['GET'])
 def check_task_status(task_id):
     """Endpoint untuk mengecek status dan mengambil hasil dengan lebih detail."""
@@ -68,7 +72,7 @@ def check_task_status(task_id):
         else:
             # Jika hasilnya kosong (tidak ditemukan jadwal)
             response = {
-                "state": "NO_SOLUTION",  # Kita gunakan state custom agar mudah dikenali di frontend
+                "state": "NO_SOLUTION",  # State custom agar mudah dikenali di frontend
                 "status": "Proses selesai, namun tidak ada jadwal valid yang bisa ditemukan.",
                 "result": []
             }
