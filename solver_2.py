@@ -584,15 +584,15 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     apply_employee_monthly_rules(model, shifts, employees_data, days, count_as_work_roles, [], employee_map, shift_map, max_work_days, forbidden_shifts_by_group, num_weekends,min_work_days,min_libur,code_to_nip_map)
     apply_night_shift_rules(model, shifts, employees_data, days, female_employees, night_shifts, employee_map, shift_map)
     apply_additional_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map, male_employees, male_bandung_indices, night_shift_indices, public_holidays, target_year, target_month)
-    apply_jakarta_monthly_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map, count_as_work_roles, max_work_days,min_work_days, num_weekends, min_libur, forbidden_shifts_by_group)
+    #apply_jakarta_monthly_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map, count_as_work_roles, max_work_days,min_work_days, num_weekends, min_libur, forbidden_shifts_by_group)
     apply_jakarta_rules(model, shifts, employees_data, days, day_types, employee_map, shift_map)
-    apply_bandung_monthly_rules(model, shifts, employees_data, days, count_as_work_roles, employee_map, shift_map, max_work_days, min_work_days, num_weekends, min_libur, forbidden_shifts_by_group, code_to_nip_map)
+    #apply_bandung_monthly_rules(model, shifts, employees_data, days, count_as_work_roles, employee_map, shift_map, max_work_days, min_work_days, num_weekends, min_libur, forbidden_shifts_by_group, code_to_nip_map)
 
     objective_function = apply_soft_constraints(model, shifts, employees_data, days, day_types, employee_map, shift_map)
     model.Maximize(objective_function)
     
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 400.0
+    solver.parameters.max_time_in_seconds = 800.0
     solver.parameters.log_search_progress = False
     solver.parameters.num_search_workers = 4
     status = solver.Solve(model)
