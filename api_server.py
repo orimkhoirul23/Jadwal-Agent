@@ -1,7 +1,7 @@
 # file: api_server.py
 
-import eventlet
-eventlet.monkey_patch()
+#import eventlet
+#eventlet.monkey_patch()
 
 from flask_cors import CORS
 from flask import Flask, request, jsonify, url_for

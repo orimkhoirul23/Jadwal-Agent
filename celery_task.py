@@ -1,5 +1,5 @@
-import eventlet
-eventlet.monkey_patch()
+#import eventlet
+#eventlet.monkey_patch()
 
 from celery import Celery
 from solver_2 import run_simulation_for_api

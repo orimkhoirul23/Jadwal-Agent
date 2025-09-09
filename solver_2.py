@@ -1,6 +1,7 @@
 import faulthandler
 faulthandler.enable()
 
+
 import collections
 from ortools.sat.python import cp_model
 import random
@@ -592,8 +593,8 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     model.Maximize(objective_function)
     
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 800.0
-    solver.parameters.log_search_progress = False
+    solver.parameters.max_time_in_seconds = 120.0
+    solver.parameters.log_search_progress = True
     solver.parameters.num_search_workers = 4
     status = solver.Solve(model)
     
@@ -666,16 +667,682 @@ if __name__ == '__main__':
     }
     
     contoh_requests = [
-        {"nip": "400204", "jenis": "Libur", "tanggal": "2025-09-21"}, {"nip": "400091", "jenis": "Libur", "tanggal": "2025-09-28"},
-        {"nip": "400204", "jenis": "Libur", "tanggal": "2025-09-28"}, {"nip": "400211", "jenis": "Libur", "tanggal": "2025-09-21"},
-        {"nip": "400204", "jenis": "Libur", "tanggal": "2025-09-06"}, {"nip": "400211", "jenis": "Libur", "tanggal": "2025-09-22"},
-        {"nip": "400091", "jenis": "Libur", "tanggal": "2025-09-21"}, {"nip": "400211", "jenis": "Cuti", "tanggal": "2025-09-29"},
-        {"nip": "400213", "jenis": "Libur", "tanggal": "2025-09-21"}, {"nip": "400193", "jenis": "Libur", "tanggal": "2025-09-14"},
-        {"nip": "400193", "jenis": "Cuti", "tanggal": "2025-09-15"}, {"nip": "400193", "jenis": "Cuti", "tanggal": "2025-09-12"},
-        {"nip": "400211", "jenis": "Cuti", "tanggal": "2025-09-19"}, {"nip": "401136", "jenis": "Libur", "tanggal": "2025-09-07"},
-        {"nip": "401136", "jenis": "Cuti", "tanggal": "2025-09-12"}
-        # Tambahkan sisa request jika perlu
-    ]
+    {
+      "nip": 400204,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400091,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400204,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400211,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400204,
+      "jenis": "Libur",
+      "tanggal": "2025-09-06"
+    },
+    {
+      "nip": 400211,
+      "jenis": "Libur",
+      "tanggal": "2025-09-22"
+    },
+    {
+      "nip": 400091,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400211,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-29"
+    },
+    {
+      "nip": 400213,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400193,
+      "jenis": "Libur",
+      "tanggal": "2025-09-14"
+    },
+    {
+      "nip": 400193,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-15"
+    },
+    {
+      "nip": 400193,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-12"
+    },
+    {
+      "nip": 400211,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-19"
+    },
+    {
+      "nip": 401136,
+      "jenis": "Libur",
+      "tanggal": "2025-09-07"
+    },
+    {
+      "nip": 401136,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-12"
+    },
+    {
+      "nip": 400193,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400193,
+      "jenis": "Libur",
+      "tanggal": "2025-09-13"
+    },
+    {
+      "nip": 400092,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400092,
+      "jenis": "Libur",
+      "tanggal": "2025-09-29"
+    },
+    {
+      "nip": 400201,
+      "jenis": "Libur",
+      "tanggal": "2025-09-17"
+    },
+    {
+      "nip": 400201,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 401145,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 400201,
+      "jenis": "Libur",
+      "tanggal": "2025-09-24"
+    },
+    {
+      "nip": 401145,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 401145,
+      "jenis": "Libur",
+      "tanggal": "2025-09-03"
+    },
+    {
+      "nip": 400211,
+      "jenis": "Libur",
+      "tanggal": "2025-09-08"
+    },
+    {
+      "nip": 400209,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400209,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-08"
+    },
+    {
+      "nip": 400209,
+      "jenis": "Libur",
+      "tanggal": "2025-09-06"
+    },
+    {
+      "nip": 400192,
+      "jenis": "Libur",
+      "tanggal": "2025-09-08"
+    },
+    {
+      "nip": 400192,
+      "jenis": "Libur",
+      "tanggal": "2025-09-22"
+    },
+    {
+      "nip": 400192,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400209,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-09"
+    },
+    {
+      "nip": 400216,
+      "jenis": "Libur",
+      "tanggal": "2025-09-29"
+    },
+    {
+      "nip": 400216,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400216,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400216,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-20"
+    },
+    {
+      "nip": 400209,
+      "jenis": "Libur",
+      "tanggal": "2025-09-07"
+    },
+    {
+      "nip": 400217,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400217,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400217,
+      "jenis": "Libur",
+      "tanggal": "2025-09-29"
+    },
+    {
+      "nip": 400217,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-30"
+    },
+    {
+      "nip": 400190,
+      "jenis": "Libur",
+      "tanggal": "2025-09-22"
+    },
+    {
+      "nip": 400190,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400190,
+      "jenis": "Libur",
+      "tanggal": "2025-09-20"
+    },
+    {
+      "nip": 400217,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-03"
+    },
+    {
+      "nip": 401136,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 401136,
+      "jenis": "Libur",
+      "tanggal": "2025-09-23"
+    },
+    {
+      "nip": 400202,
+      "jenis": "Libur",
+      "tanggal": "2025-09-12"
+    },
+    {
+      "nip": 400087,
+      "jenis": "Libur",
+      "tanggal": "2025-09-02"
+    },
+    {
+      "nip": 400087,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-03"
+    },
+    {
+      "nip": 400087,
+      "jenis": "Libur",
+      "tanggal": "2025-09-01"
+    },
+    {
+      "nip": 400087,
+      "jenis": "Libur",
+      "tanggal": "2025-09-07"
+    },
+    {
+      "nip": 400202,
+      "jenis": "Libur",
+      "tanggal": "2025-09-19"
+    },
+    {
+      "nip": 400202,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400092,
+      "jenis": "Libur",
+      "tanggal": "2025-09-13"
+    },
+    {
+      "nip": 400090,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 400090,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-03"
+    },
+    {
+      "nip": 400090,
+      "jenis": "Libur",
+      "tanggal": "2025-09-13"
+    },
+    {
+      "nip": 400090,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-26"
+    },
+    {
+      "nip": 400090,
+      "jenis": "Libur",
+      "tanggal": "2025-09-20"
+    },
+    {
+      "nip": 400299,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400299,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-01"
+    },
+    {
+      "nip": 400299,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 400213,
+      "jenis": "Libur",
+      "tanggal": "2025-09-29"
+    },
+    {
+      "nip": 400213,
+      "jenis": "Libur",
+      "tanggal": "2025-09-26"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-25"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Libur",
+      "tanggal": "2025-09-18"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Libur",
+      "tanggal": "2025-09-19"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-24"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Libur",
+      "tanggal": "2025-09-09"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-26"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-23"
+    },
+    {
+      "nip": 400210,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-22"
+    },
+    {
+      "nip": 400198,
+      "jenis": "Libur",
+      "tanggal": "2025-09-06"
+    },
+    {
+      "nip": 400198,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400198,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-01"
+    },
+    {
+      "nip": 400198,
+      "jenis": "Libur",
+      "tanggal": "2025-09-07"
+    },
+    {
+      "nip": 401524,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-09"
+    },
+    {
+      "nip": 401524,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 401524,
+      "jenis": "Libur",
+      "tanggal": "2025-09-07"
+    },
+    {
+      "nip": 401524,
+      "jenis": "Libur",
+      "tanggal": "2025-09-06"
+    },
+    {
+      "nip": 401524,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-08"
+    },
+    {
+      "nip": 401524,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-22"
+    },
+    {
+      "nip": 400203,
+      "jenis": "Libur",
+      "tanggal": "2025-09-23"
+    },
+    {
+      "nip": 400203,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400203,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-26"
+    },
+    {
+      "nip": 400203,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 400203,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-24"
+    },
+    {
+      "nip": 400203,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-25"
+    },
+    {
+      "nip": 400212,
+      "jenis": "Libur",
+      "tanggal": "2025-09-20"
+    },
+    {
+      "nip": 400212,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-12"
+    },
+    {
+      "nip": 400212,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 400212,
+      "jenis": "Libur",
+      "tanggal": "2025-09-30"
+    },
+    {
+      "nip": 400212,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-11"
+    },
+    {
+      "nip": 401144,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 401144,
+      "jenis": "Libur",
+      "tanggal": "2025-09-20"
+    },
+    {
+      "nip": 401144,
+      "jenis": "Libur",
+      "tanggal": "2025-09-21"
+    },
+    {
+      "nip": 400189,
+      "jenis": "Libur",
+      "tanggal": "2025-09-17"
+    },
+    {
+      "nip": 400189,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 400189,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-01"
+    },
+    {
+      "nip": 400189,
+      "jenis": "Libur",
+      "tanggal": "2025-09-13"
+    },
+    {
+      "nip": 400093,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400093,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-12"
+    },
+    {
+      "nip": 400093,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-26"
+    },
+    {
+      "nip": 400093,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 400093,
+      "jenis": "Libur",
+      "tanggal": "2025-09-13"
+    },
+    {
+      "nip": 400196,
+      "jenis": "Libur",
+      "tanggal": "2025-09-28"
+    },
+    {
+      "nip": 400196,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 401108,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-15"
+    },
+    {
+      "nip": 401108,
+      "jenis": "Libur",
+      "tanggal": "2025-09-13"
+    },
+    {
+      "nip": 401108,
+      "jenis": "Libur",
+      "tanggal": "2025-09-03"
+    },
+    {
+      "nip": 401108,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-16"
+    },
+    {
+      "nip": 401108,
+      "jenis": "Libur",
+      "tanggal": "2025-09-14"
+    },
+    {
+      "nip": 401107,
+      "jenis": "Libur",
+      "tanggal": "2025-09-10"
+    },
+    {
+      "nip": 401107,
+      "jenis": "Libur",
+      "tanggal": "2025-09-27"
+    },
+    {
+      "nip": 401107,
+      "jenis": "Libur",
+      "tanggal": "2025-09-19"
+    },
+    {
+      "nip": 400206,
+      "jenis": "Libur",
+      "tanggal": "2025-09-02"
+    },
+    {
+      "nip": 400206,
+      "jenis": "Libur",
+      "tanggal": "2025-09-14"
+    },
+    {
+      "nip": 400206,
+      "jenis": "Libur",
+      "tanggal": "2025-09-07"
+    },
+    {
+      "nip": 401133,
+      "jenis": "Libur",
+      "tanggal": "2025-09-02"
+    },
+    {
+      "nip": 401133,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-15"
+    },
+    {
+      "nip": 401138,
+      "jenis": "Libur",
+      "tanggal": "2025-09-05"
+    },
+    {
+      "nip": 401138,
+      "jenis": "Libur",
+      "tanggal": "2025-09-06"
+    },
+    {
+      "nip": 401138,
+      "jenis": "Libur",
+      "tanggal": "2025-09-07"
+    },
+    {
+      "nip": 401138,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-08"
+    },
+    {
+      "nip": 401107,
+      "jenis": "Libur",
+      "tanggal": "2025-09-13"
+    },
+    {
+      "nip": 401107,
+      "jenis": "Libur",
+      "tanggal": "2025-09-14"
+    },
+    {
+      "nip": 401107,
+      "jenis": "Libur",
+      "tanggal": "2025-09-15"
+    },
+    {
+      "nip": 400092,
+      "jenis": "Cuti",
+      "tanggal": "2025-09-04"
+    },
+    {
+      "nip": 401133,
+      "jenis": "Libur",
+      "tanggal": "2025-09-01"
+    },
+    {
+      "nip": 400090,
+      "jenis": "Libur",
+      "tanggal": "2025-09-01"
+    },
+    {
+      "nip": 400206,
+      "jenis": "Libur",
+      "tanggal": "2025-09-01"
+    },
+    {
+      "nip": 400196,
+      "jenis": "Libur",
+      "tanggal": "2025-09-01"
+    }
+  ]
     daftar_tanggal_merah = ["2025-09-05"]
 
     list_of_valid_schedules = run_simulation_for_api(
