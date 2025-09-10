@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Lingkungan virtual (Virtual environments)
+venv/
+.venv/
+env/
+.env/
+
+# File-file spesifik dari IDE/editor
+.vscode/
+.idea/
+
+# File environment yang berisi rahasia
+.env
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
