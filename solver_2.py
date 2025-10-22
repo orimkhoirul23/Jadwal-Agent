@@ -594,7 +594,7 @@ def solve_one_instance(employees_data, target_year, target_month, pre_assignment
     
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 120.0
-    solver.parameters.log_search_progress = True
+    solver.parameters.log_search_progress = False
     solver.parameters.num_search_workers = 4
     status = solver.Solve(model)
     
