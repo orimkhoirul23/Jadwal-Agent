@@ -44,10 +44,10 @@ def start_schedule_generation():
     return jsonify({
         "message": "Proses pembuatan jadwal dimulai.",
         "task_id": task.id,
-        "status_check_url": url_for('check_task_status', task_id=task.id, _external=True)
+        "status_check_url": url_for('check_task_status', task_id=task.id, _external=True).replace('/check-status/', '/gen/check-status/')
     }), 202
 
-@app.route('/gen/check-status/<task_id>', methods=['GET'])
+@app.route('/check-status/<task_id>', methods=['GET'])
 def check_task_status(task_id):
     """Endpoint untuk mengecek status dan mengambil hasil dengan lebih detail."""
     task = run_solver_task.AsyncResult(task_id)
