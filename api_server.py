@@ -6,10 +6,11 @@
 from flask_cors import CORS
 from flask import Flask, request, jsonify, url_for
 from celery_task import run_solver_task
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
 CORS(app)
-
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 @app.route('/generate-schedule', methods=['POST'])
 def start_schedule_generation():
     """Endpoint untuk memulai proses pembuatan jadwal."""
