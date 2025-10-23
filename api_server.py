@@ -47,7 +47,7 @@ def start_schedule_generation():
         "status_check_url": url_for('check_task_status', task_id=task.id, _external=True)
     }), 202
 
-@app.route('/check-status/<task_id>', methods=['GET'])
+@app.route('/gen/check-status/<task_id>', methods=['GET'])
 def check_task_status(task_id):
     """Endpoint untuk mengecek status dan mengambil hasil dengan lebih detail."""
     task = run_solver_task.AsyncResult(task_id)
